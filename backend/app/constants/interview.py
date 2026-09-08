@@ -1,5 +1,3 @@
-API_V1_PREFIX = "/api/v1"
-
 INTERVIEW_PHASES = [
     "background_check",
     "project_drill_down",
