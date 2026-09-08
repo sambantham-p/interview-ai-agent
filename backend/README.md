@@ -136,6 +136,152 @@ argument 'sslmode'`. Fixed in `app/core/db.py`'s `to_asyncpg_url()`: it
 strips those query params and TLS is enabled instead via
 `connect_args={"ssl": True}` on `create_async_engine`.
 
+## Logging
+
+`structlog`, configured once at startup (`app/core/logging.py`,
+`configure_logging()` called from `app/main.py`) and routed through
+stdlib `logging` via `ProcessorFormatter`, so **every** log line — this
+app's own, and library log lines still using stdlib `logging` (Uvicorn,
+SQLAlchemy, ...) — goes through the same pipeline, with file name, line
+number, and function name attached automatically.
+
+**Output format depends on whether stdout is a real terminal**
+(`sys.stdout.isatty()`), decided automatically, no config needed:
+- **Local dev (running `uvicorn` directly in a terminal):** colored,
+  human-readable console output (`structlog.dev.ConsoleRenderer`).
+- **Anywhere else** (output piped/redirected to a file, running under a
+  process manager on Render, etc.): flat JSON — what a log aggregator
+  actually wants to parse:
+
+```json
+{"method": "GET", "path": "/api/v1/health", "status_code": 200, "duration_ms": 3.7, "event": "request handled", "request_id": "d07afca9-...", "level": "info", "timestamp": "2026-09-08T15:09:10.233082Z", "func_name": "dispatch", "filename": "request_logging.py", "lineno": 33}
+```
+
+**Using it in a route/service — one-time setup, then trivial per call:**
+
+```python
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+logger.info("resume parsed", candidate_id=candidate.id)
+logger.warning("github_url missing", candidate_id=candidate.id)
+```
+
+Structured fields (`candidate_id=...`) come out as real JSON fields, not
+text glued into a sentence. Nothing else needs configuring per file —
+`configure_logging()` is called exactly once, at process startup.
+
+**Request correlation:** `app/core/request_logging.py`'s
+`RequestLoggingMiddleware` binds a `request_id` (reused from an incoming
+`X-Request-ID` header if present, otherwise a generated UUID) once per
+request via `structlog.contextvars`. Every log line emitted anywhere
+while handling that request — this middleware's own "request handled"
+line, any route/service code, even Uvicorn's own access log line —
+automatically carries the same `request_id`, with nothing passed around
+manually. The response also gets an `X-Request-ID` header back.
+
+**Testing logging behavior:** use `structlog.testing.capture_logs()`
+rather than parsing stdout. It disables the configured processor
+pipeline for its duration, so if a test needs `request_id` (or anything
+else from `structlog.contextvars`) to show up, pass it back in explicitly:
+
+```python
+with structlog.testing.capture_logs(
+    processors=[structlog.contextvars.merge_contextvars]
+) as captured:
+    response = client.get("/api/v1/health")
+```
+
+### Changing the console theme or colors
+
+Both live in `app/core/logging.py`, inside the `if sys.stdout.isatty():`
+branch (the local-dev console path — the JSON path has no theme/color
+concept, it's plain data).
+
+**Exception traceback theme** — currently `monokai`
+(`RichTracebackFormatter(theme="monokai")`). This is a [Pygments](https://pygments.org/styles/)
+syntax-highlighting theme name; any installed Pygments style works.
+
+All 50 theme names actually installed in this environment (verified via
+the command below, not just documented — rerun it after a dependency
+bump in case Pygments adds/removes styles):
+
+```bash
+.venv/bin/python -c "from pygments.styles import get_all_styles; print(sorted(get_all_styles()))"
+```
+
+```
+abap, algol, algol_nu, arduino, autumn, borland, bw, coffee, colorful,
+default, dracula, emacs, friendly, friendly_grayscale, fruity,
+github-dark, gruvbox-dark, gruvbox-light, igor, inkpot, lightbulb,
+lilypond, lovelace, manni, material, monokai, murphy, native, night-owl,
+nord, nord-darker, one-dark, paraiso-dark, paraiso-light, pastie,
+perldoc, rainbow_dash, rrt, sas, solarized-dark, solarized-light,
+staroffice, stata-dark, stata-light, tango, trac, vim, vs, xcode, zenburn
+```
+
+Popular choices for a dark terminal: `monokai`, `dracula`, `one-dark`,
+`nord`, `gruvbox-dark`, `solarized-dark`, `night-owl`, `github-dark`.
+Switch it by editing the one string:
+
+```python
+structlog.dev.RichTracebackFormatter(theme="dracula")
+```
+
+**Level colors** (the color of the `info`/`warning`/`error` label
+itself) — currently the library defaults, which use the same green for
+both `debug` and `info`. Override with `level_styles` on
+`ConsoleRenderer`:
+
+```python
+structlog.dev.ConsoleRenderer(
+    level_styles={
+        "debug": "\x1b[90m",  # gray
+        "info": "\x1b[36m",  # cyan
+        "warning": "\x1b[33m",  # yellow (library default)
+        "error": "\x1b[31m",  # red (library default)
+        "critical": "\x1b[35m",  # magenta
+        "exception": "\x1b[35m",
+        "notset": "\x1b[41m",
+    },
+    exception_formatter=structlog.dev.RichTracebackFormatter(theme="monokai"),
+)
+```
+
+See the current defaults for any styles you don't want to override:
+
+```bash
+.venv/bin/python -c "import structlog.dev; print(structlog.dev.ConsoleRenderer.get_default_level_styles())"
+```
+
+Any ANSI escape code works as a `level_styles` value — `structlog.dev`
+exports these as named constants (all verified against the installed
+version), which is clearer than typing raw escape sequences:
+
+| Constant | Value | Color |
+|---|---|---|
+| `structlog.dev.RED` | `\x1b[31m` | red |
+| `structlog.dev.GREEN` | `\x1b[32m` | green |
+| `structlog.dev.YELLOW` | `\x1b[33m` | yellow |
+| `structlog.dev.BLUE` | `\x1b[34m` | blue |
+| `structlog.dev.MAGENTA` | `\x1b[35m` | magenta |
+| `structlog.dev.CYAN` | `\x1b[36m` | cyan |
+| `structlog.dev.RED_BACK` | `\x1b[41m` | red background |
+| `structlog.dev.BRIGHT` | `\x1b[1m` | bold/bright modifier |
+| `structlog.dev.DIM` | `\x1b[2m` | dim modifier |
+| `structlog.dev.RESET_ALL` | `\x1b[0m` | reset |
+
+That's a small, fixed named set (8 base colors' worth — no named gray,
+for instance). For anything outside it — gray (`\x1b[90m`), any 256-color
+code, or a truecolor RGB code (`\x1b[38;2;R;G;Bm`) — just use the raw
+ANSI escape string directly, exactly like the `"debug": "\x1b[90m"`
+example above.
+
+To disable color entirely (e.g. a terminal that mangles ANSI codes),
+pass `colors=False` to `ConsoleRenderer` — this has no effect on the
+JSON path, which was never colored to begin with.
+
 ## Linting & formatting
 
 ```bash
