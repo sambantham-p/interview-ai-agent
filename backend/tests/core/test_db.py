@@ -54,6 +54,9 @@ def test_get_session_factory_is_bound_to_get_engine(mocker: MockerFixture) -> No
     session_factory = get_session_factory()
 
     assert session_factory.kw["bind"] is get_engine()
+    # expire_on_commit=False: ORM objects stay usable after commit, e.g.
+    # returning a just-created row in an API response without a refresh.
+    assert session_factory.kw["expire_on_commit"] is False
 
     get_engine.cache_clear()
 
