@@ -1,8 +1,7 @@
 from fastapi import FastAPI
 
+from app.routes import health
+
 app = FastAPI(title="interview-ai-agent")
 
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+app.include_router(health.router)
