@@ -32,19 +32,29 @@ UI lives at `/api/v1/docs`, not `/docs`.
 backend/
 ├── app/
 │   ├── main.py                   # FastAPI app instance, router + exception handler wiring
-│   ├── constants.py               # shared constants (API_V1_PREFIX, SERVICE_NAME, ...)
+│   ├── constants/                 # shared constants, grouped by domain (not one flat file)
+│   │   ├── app.py                 #   API_V1_PREFIX, SERVICE_NAME, DEFAULT_USER_ID
+│   │   ├── health.py              #   HEALTH_STATUS_HEALTHY / _UNHEALTHY
+│   │   ├── responses.py           #   RESPONSE_STATUS_OK / _ERROR (envelope's "status" field)
+│   │   └── interview.py           #   INTERVIEW_PHASES
 │   ├── core/
+│   │   ├── config.py              # Settings (pydantic-settings) — loads .env, e.g. DATABASE_URL
+│   │   ├── db.py                  # async SQLAlchemy engine/session (get_engine, get_db)
 │   │   ├── responses.py           # success_response() / error_response() — the envelope builders
 │   │   └── exception_handlers.py  # wraps HTTPException / validation / 500s in the same envelope
+│   ├── models/                    # SQLAlchemy ORM models (candidate_profile, interview_session)
 │   ├── schemas/
 │   │   └── response.py            # APIResponse / ErrorDetail Pydantic models
 │   ├── routes/
 │   │   └── health.py              # /health
 │   ├── services/                  # business logic
 │   └── utils/                     # generic, framework-agnostic helpers
+├── migrations/                      # Alembic migrations — env.py reads DATABASE_URL via app.core.config
 ├── tests/                         # mirrors app/'s structure 1:1 — see Testing below
 │   ├── conftest.py                # shared fixtures (TestClient, ...)
 │   ├── core/
+│   ├── models/
+│   ├── constants/
 │   └── routes/
 ├── requirements.txt                # runtime + test deps (pinned)
 ├── requirements-dev.txt            # lint/security tooling only (ruff, bandit, pre-commit)
@@ -102,6 +112,46 @@ uv pip install --python .venv/bin/python -r requirements-dev.txt   # lint/securi
 
 Copy `.env.example` to `.env` and fill in real values before running
 anything that touches Postgres/OpenAI/ElevenLabs/Judge0/GitHub.
+
+## Database
+
+Postgres via Neon. Models live in `app/models/`; migrations are Alembic,
+configured (`migrations/env.py`) to read `DATABASE_URL` from `.env` via
+`app.core.config` — not from `alembic.ini` — so there's one source of
+truth for the connection string, same as the running app uses.
+
+```bash
+alembic upgrade head                                    # apply migrations
+alembic revision --autogenerate -m "add some_table"       # after changing a model
+alembic current                                          # what revision the DB is on
+```
+
+**Gotcha:** Neon's connection string includes `sslmode=require` and
+`channel_binding=require` — these are `libpq`/`psycopg` query parameters.
+SQLAlchemy's asyncpg dialect passes URL query params straight through as
+Python keyword arguments to `asyncpg.connect()`, which doesn't have a
+`sslmode` or `channel_binding` parameter at all (only `ssl`) — so using
+Neon's URL as-is raises `TypeError: connect() got an unexpected keyword
+argument 'sslmode'`. Fixed in `app/core/db.py`'s `to_asyncpg_url()`: it
+strips those query params and TLS is enabled instead via
+`connect_args={"ssl": True}` on `create_async_engine`.
+
+## Linting & formatting
+
+```bash
+.venv/bin/ruff check .            # lint
+.venv/bin/ruff check --fix .      # lint, auto-fixing what's safely fixable
+.venv/bin/ruff format .           # reformat
+.venv/bin/ruff format --check .   # verify formatting without changing files
+.venv/bin/bandit -c pyproject.toml -r app   # security scan
+```
+
+Or run everything at once, exactly as the pre-commit hook does
+(`.pre-commit-config.yaml` at the repo root):
+
+```bash
+.venv/bin/pre-commit run --all-files
+```
 
 ## Testing
 
