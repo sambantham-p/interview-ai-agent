@@ -8,8 +8,8 @@ from app.constants.app import DEFAULT_USER_ID
 from app.models.base import Base
 
 
-class InterviewSession(Base):
-    __tablename__ = "interview_sessions"
+class JobDescription(Base):
+    __tablename__ = "job_descriptions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[str] = mapped_column(String, default=DEFAULT_USER_ID, index=True)

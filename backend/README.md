@@ -42,7 +42,7 @@ backend/
 │   │   ├── db.py                  # async SQLAlchemy engine/session (get_engine, get_db)
 │   │   ├── responses.py           # success_response() / error_response() — the envelope builders
 │   │   └── exception_handlers.py  # wraps HTTPException / validation / 500s in the same envelope
-│   ├── models/                    # SQLAlchemy ORM models (candidate_profile, interview_session)
+│   ├── models/                    # SQLAlchemy ORM models (candidate_profile, job_description)
 │   ├── schemas/
 │   │   └── response.py            # APIResponse / ErrorDetail Pydantic models
 │   ├── routes/
