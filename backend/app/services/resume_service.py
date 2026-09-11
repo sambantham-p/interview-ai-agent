@@ -45,7 +45,7 @@ async def parse_and_persist_resume(
         ),
         system_instruction=EXTRACTION_INSTRUCTIONS,
         text_format=ResumeExtraction,
-        thinking_level="high",
+        thinking_level="medium",
         seed=GEMINI_RESUME_EXTRACTION_SEED,
     )
 
