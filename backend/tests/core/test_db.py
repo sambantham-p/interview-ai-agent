@@ -2,7 +2,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from app.core.config import Settings
-from app.core.db import get_db, get_engine, get_session_factory, to_asyncpg_url
+from app.core.db import get_db, get_engine, get_session_factory, ping, to_asyncpg_url
 
 
 def test_to_asyncpg_url_rewrites_postgresql_scheme() -> None:
@@ -29,7 +29,11 @@ def test_to_asyncpg_url_strips_libpq_only_query_params() -> None:
 def test_get_engine_builds_asyncpg_url_and_is_cached(mocker: MockerFixture) -> None:
     mocker.patch(
         "app.core.db.get_settings",
-        return_value=Settings(database_url="postgresql://u:p@host/db"),
+        return_value=Settings(
+            database_url="postgresql://u:p@host/db",
+            gemini_api_key="test-key",
+            gemini_resume_parsing_model="gemini-3.8-flash",
+        ),
     )
     get_engine.cache_clear()
 
@@ -47,7 +51,11 @@ def test_get_engine_builds_asyncpg_url_and_is_cached(mocker: MockerFixture) -> N
 def test_get_session_factory_is_bound_to_get_engine(mocker: MockerFixture) -> None:
     mocker.patch(
         "app.core.db.get_settings",
-        return_value=Settings(database_url="postgresql://u:p@host/db"),
+        return_value=Settings(
+            database_url="postgresql://u:p@host/db",
+            gemini_api_key="test-key",
+            gemini_resume_parsing_model="gemini-3.8-flash",
+        ),
     )
     get_engine.cache_clear()
 
@@ -59,6 +67,24 @@ def test_get_session_factory_is_bound_to_get_engine(mocker: MockerFixture) -> No
     assert session_factory.kw["expire_on_commit"] is False
 
     get_engine.cache_clear()
+
+
+async def test_ping_runs_select_1_against_a_real_connection(
+    mocker: MockerFixture,
+) -> None:
+    fake_conn = mocker.AsyncMock()
+    fake_conn_cm = mocker.MagicMock()
+    fake_conn_cm.__aenter__ = mocker.AsyncMock(return_value=fake_conn)
+    fake_conn_cm.__aexit__ = mocker.AsyncMock(return_value=False)
+    fake_engine = mocker.MagicMock()
+    fake_engine.connect = mocker.MagicMock(return_value=fake_conn_cm)
+    mocker.patch("app.core.db.get_engine", return_value=fake_engine)
+
+    await ping()
+
+    fake_conn.execute.assert_awaited_once()
+    (query,), _ = fake_conn.execute.call_args
+    assert str(query) == "SELECT 1"
 
 
 async def test_get_db_yields_session_and_closes_it(mocker: MockerFixture) -> None:
