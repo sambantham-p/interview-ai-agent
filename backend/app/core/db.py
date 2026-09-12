@@ -34,7 +34,10 @@ def get_engine() -> AsyncEngine:
     # never requires DATABASE_URL to be set - only actually using the
     # engine does.
     return create_async_engine(
-        to_asyncpg_url(get_settings().database_url), connect_args={"ssl": True}
+        to_asyncpg_url(get_settings().database_url),
+        connect_args={"ssl": True, "statement_cache_size": 0},
+        pool_pre_ping=True,
+        pool_recycle=300,
     )
 
 

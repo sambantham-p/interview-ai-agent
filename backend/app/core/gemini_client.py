@@ -1,19 +1,57 @@
-import base64
+import time
 from functools import lru_cache
 from typing import Literal
 
+import httpx
+import structlog
 from google import genai
-from google.genai import interactions, types
+from google.genai import types
+from google.genai.errors import ClientError, ServerError
 from pydantic import BaseModel, Field
 
 from app.constants.gemini import (
     GEMINI_CLIENT_TIMEOUT_MS,
+    GEMINI_RATE_LIMIT_STATUS_CODE,
     GEMINI_RETRY_ATTEMPTS,
     GEMINI_RETRY_MAX_DELAY_SECONDS,
 )
 from app.core.config import get_settings
 
+logger = structlog.get_logger(__name__)
+
+
+class GeminiTransientError(Exception):
+    """A retryable Gemini-side failure (network error, 5xx, 429 rate
+    limit) - not the caller's fault. Callers don't need to inspect the
+    original SDK error; app/core/exception_handlers.py maps this straight
+    to a 503.
+    """
+
+
+class GeminiResponseParseError(Exception):
+    """Gemini responded but the output didn't match the requested
+    text_format. Distinct from GeminiTransientError since retrying the
+    same input won't fix a schema mismatch.
+    """
+
+
 MediaResolution = Literal["unspecified", "low", "medium", "high", "ultra_high"]
+ThinkingLevel = Literal["minimal", "low", "medium", "high"]
+
+_MEDIA_RESOLUTION_LEVELS: dict[MediaResolution, types.PartMediaResolutionLevel] = {
+    "unspecified": types.PartMediaResolutionLevel.MEDIA_RESOLUTION_UNSPECIFIED,
+    "low": types.PartMediaResolutionLevel.MEDIA_RESOLUTION_LOW,
+    "medium": types.PartMediaResolutionLevel.MEDIA_RESOLUTION_MEDIUM,
+    "high": types.PartMediaResolutionLevel.MEDIA_RESOLUTION_HIGH,
+    "ultra_high": types.PartMediaResolutionLevel.MEDIA_RESOLUTION_ULTRA_HIGH,
+}
+
+_THINKING_LEVELS: dict[ThinkingLevel, types.ThinkingLevel] = {
+    "minimal": types.ThinkingLevel.MINIMAL,
+    "low": types.ThinkingLevel.LOW,
+    "medium": types.ThinkingLevel.MEDIUM,
+    "high": types.ThinkingLevel.HIGH,
+}
 
 
 @lru_cache
@@ -34,100 +72,100 @@ def get_gemini_client() -> genai.Client:
 async def extract_structured[T: BaseModel](
     *,
     model: str,
-    contents: list[interactions.DocumentContentParam | interactions.TextContentParam],
+    contents: list[types.Part],
     text_format: type[T],
     system_instruction: str,
-    thinking_level: interactions.ThinkingLevel,
+    thinking_level: ThinkingLevel,
     seed: int | None = None,
 ) -> T:
-    """Structured-output call via client.aio.interactions.create() - the
-    Interactions API, Google's default as of June 2026 (generate_content,
-    this wrapper's previous basis, is now documented as legacy).
+    """Call generate_content and return the response validated as
+    text_format.
 
-    No .parsed shortcut here unlike generate_content - output_text is a
-    raw JSON string, validated manually against text_format.
+    Logs a start line before the call and a success/error line after,
+    both with the elapsed duration. Raises GeminiResponseParseError if
+    the response doesn't match text_format, GeminiTransientError for a
+    retryable Gemini-side failure (network error, 5xx, 429 rate limit).
+    Any other error propagates unchanged.
 
-    system_instruction carries the task-level rules (what to extract, how
-    to format it) via the API's own dedicated field - confirmed as a real
-    top-level kwarg on interactions.create() by inspecting its signature
-    (accepts **body: Any covering every CreateModelInteractionParam
-    field). `contents`/`input` is reserved for the actual data being
-    processed (e.g. the resume document) - previously the instructions
-    were stuffed into a `text` content block sitting inside `input` next
-    to the document, mixing task guidance with data instead of using the
-    field built for it.
-
-    Retries: interactions.create() ignores get_gemini_client()'s
-    retry_options above - it has its own separate default (4 attempts,
-    exponential backoff, capped at 30s total) that applies automatically
-    with no config needed, confirmed by reading the SDK source.
-
-    thinking_level has no default (every caller must decide, same
-    reasoning as the removed enable_function_calling param) - left unset,
-    it defaults to an adaptive, unpinned effort level, which contributes
-    to run-to-run variance on the same input (some calls read a
-    multi-column resume fully, some don't).
-
-    seed is optional, defaulting to unset (the SDK's own natural
-    default - normal, undetermined sampling). The Interactions API has
-    no temperature/top_p/top_k to control sampling directly - confirmed
-    via https://ai.google.dev/api/interactions-api - seed is Google's own
-    documented mechanism for reproducible decoding instead. Pass a fixed
-    value for calls where identical input should reliably produce
-    identical output (e.g. resume extraction); leave unset for calls
-    where natural variation is fine or desired (e.g. conversational
-    turns).
+    thinking_level has no default - every caller must pick an effort
+    level explicitly. seed is optional; pass a fixed value where
+    identical input should reliably produce identical output (e.g.
+    resume extraction), leave it unset where natural variation is fine.
     """
     client = get_gemini_client()
-    generation_config: interactions.GenerationConfigParam = {
-        "thinking_level": thinking_level
-    }
-    if seed is not None:
-        generation_config["seed"] = seed
-    interaction = await client.aio.interactions.create(
-        model=model,
-        input=contents,
-        system_instruction=system_instruction,
-        response_format={
-            "type": "text",
-            "mime_type": "application/json",
-            "schema": text_format.model_json_schema(),
-        },
-        generation_config=generation_config,
+    log = logger.bind(model=model, text_format=text_format.__name__)
+    start_time = time.monotonic()
+    log.info("gemini.generate_content.start", thinking_level=thinking_level)
+
+    try:
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=types.Content(parts=contents),
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                response_mime_type="application/json",
+                response_schema=text_format,
+                thinking_config=types.ThinkingConfig(
+                    thinking_level=_THINKING_LEVELS[thinking_level]
+                ),
+                seed=seed,
+            ),
+        )
+    except Exception as exc:
+        log.exception(
+            "gemini.generate_content.error",
+            duration_seconds=time.monotonic() - start_time,
+        )
+        is_rate_limited = (
+            isinstance(exc, ClientError) and exc.code == GEMINI_RATE_LIMIT_STATUS_CODE
+        )
+        if isinstance(exc, httpx.HTTPError | ServerError) or is_rate_limited:
+            raise GeminiTransientError(str(exc)) from exc
+        raise
+
+    duration_seconds = time.monotonic() - start_time
+    parsed = response.parsed
+    if not isinstance(parsed, text_format):
+        log.error(
+            "gemini.generate_content.parse_failed",
+            duration_seconds=duration_seconds,
+            response_text=response.text,
+        )
+        raise GeminiResponseParseError(
+            f"Gemini response did not parse into {text_format.__name__}: "
+            f"{response.text!r}"
+        )
+
+    usage = response.usage_metadata
+    log.info(
+        "gemini.generate_content.success",
+        duration_seconds=duration_seconds,
+        prompt_token_count=usage.prompt_token_count if usage else None,
+        candidates_token_count=usage.candidates_token_count if usage else None,
+        total_token_count=usage.total_token_count if usage else None,
     )
-    return text_format.model_validate_json(interaction.output_text)
+    return parsed
 
 
 class FileInputRequest(BaseModel):
-    """Request DTO for build_file_input() - validated at runtime, unlike
-    the SDK's own types below (no type-checker runs in this project).
-    """
+    """Request DTO for build_file_input(), validated at runtime."""
 
     file_bytes: bytes
     mime_type: str = Field(min_length=1)
     resolution: MediaResolution
 
 
-def build_file_input(
-    request: FileInputRequest,
-) -> list[interactions.DocumentContentParam]:
-    """Build Interactions API `input`: the file as a base64-encoded
-    document content block. Task instructions go through
-    extract_structured()'s system_instruction instead - input is for
-    data, not task guidance.
+def build_file_input(request: FileInputRequest) -> list[types.Part]:
+    """Build a generate_content Part from file bytes, with resolution
+    mapped to the SDK's MediaResolution enum.
 
-    resolution has no default (every caller must decide, same "no silent
-    default" convention as thinking_level) - Gemini 3 renders each PDF
-    page as an image and processes it visually on top of native text
-    extraction (which is free regardless of resolution); "high"/
-    "ultra_high" spends real latency on visual fidelity a plain-text
-    resume doesn't need, while "low" risks losing the layout cues a
-    multi-column resume needs to read columns in the right order.
+    resolution has no default: higher resolution costs latency but
+    preserves layout cues a multi-column resume needs to read correctly.
     """
-    document: dict[str, str] = {
-        "type": "document",
-        "data": base64.b64encode(request.file_bytes).decode("utf-8"),
-        "mime_type": request.mime_type,
-        "resolution": request.resolution,
-    }
-    return [document]
+    return [
+        types.Part.from_bytes(
+            data=request.file_bytes,
+            mime_type=request.mime_type,
+            media_resolution=_MEDIA_RESOLUTION_LEVELS[request.resolution],
+        )
+    ]

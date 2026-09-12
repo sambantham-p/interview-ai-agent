@@ -1,9 +1,10 @@
 from datetime import UTC, datetime
 
-import httpx
 from fastapi.testclient import TestClient
 from pytest_mock import MockerFixture
 
+from app.core.gemini_client import GeminiResponseParseError, GeminiTransientError
+from app.main import app
 from app.models.candidate_profile import CandidateProfile
 
 
@@ -101,13 +102,15 @@ def test_upload_resume_returns_persisted_profile_on_success(
     assert body["data"]["github_url"] == "https://github.com/example"
 
 
-def test_upload_resume_returns_503_when_a_raw_httpx_error_is_raised(
+def test_upload_resume_returns_503_for_a_transient_gemini_failure(
     client: TestClient, mocker: MockerFixture
 ) -> None:
-    error = httpx.ConnectError("boom")
+    # GeminiTransientError (network error, 5xx, 429 - see
+    # gemini_client.py) is handled app-wide by
+    # app/core/exception_handlers.py, not by this route.
     mocker.patch(
         "app.routes.resume.parse_and_persist_resume",
-        side_effect=error,
+        side_effect=GeminiTransientError("gemini down"),
         new_callable=mocker.AsyncMock,
     )
 
@@ -117,39 +120,38 @@ def test_upload_resume_returns_503_when_a_raw_httpx_error_is_raised(
     assert response.json()["success"] is False
 
 
-def test_upload_resume_returns_503_for_gemini_sdk_connection_errors(
-    client: TestClient, mocker: MockerFixture
-) -> None:
-    # google-genai's real Interactions-API connection/timeout errors
-    # (APIConnectionError/APITimeoutError) live in a private _gaos
-    # submodule, unsafe to import directly (see app/routes/resume.py's
-    # comment) - this simulates one by class name only, the same way the
-    # route itself detects it, without importing the private type.
-    class APIConnectionError(Exception):
-        pass
-
-    mocker.patch(
-        "app.routes.resume.parse_and_persist_resume",
-        side_effect=APIConnectionError("gemini unreachable"),
-        new_callable=mocker.AsyncMock,
-    )
-
-    response = client.post("/api/v1/resume/upload", files=dict([_fake_upload_file()]))
-
-    assert response.status_code == 503
-    assert response.json()["success"] is False
-
-
-def test_upload_resume_returns_422_when_extraction_fails_for_any_other_reason(
+def test_upload_resume_returns_422_when_gemini_response_does_not_parse(
     client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
         "app.routes.resume.parse_and_persist_resume",
-        side_effect=ValueError("nothing extractable"),
+        side_effect=GeminiResponseParseError("nothing extractable"),
         new_callable=mocker.AsyncMock,
     )
 
     response = client.post("/api/v1/resume/upload", files=dict([_fake_upload_file()]))
 
     assert response.status_code == 422
+    assert response.json()["success"] is False
+
+
+def test_upload_resume_returns_500_for_an_unexpected_failure(
+    mocker: MockerFixture,
+) -> None:
+    # Anything not GeminiTransientError/GeminiResponseParseError (a DB
+    # error, a bug) falls through to the generic 500 handler - the route
+    # itself has no try/except of its own. Needs raise_server_exceptions
+    # =False: Starlette's ServerErrorMiddleware is what handles a bare
+    # Exception, and TestClient re-raises in-process instead of returning
+    # its response unless told not to.
+    mocker.patch(
+        "app.routes.resume.parse_and_persist_resume",
+        side_effect=RuntimeError("db exploded"),
+        new_callable=mocker.AsyncMock,
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post("/api/v1/resume/upload", files=dict([_fake_upload_file()]))
+
+    assert response.status_code == 500
     assert response.json()["success"] is False

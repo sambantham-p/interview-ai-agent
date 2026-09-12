@@ -26,6 +26,63 @@ def test_to_asyncpg_url_strips_libpq_only_query_params() -> None:
     assert to_asyncpg_url(url) == "postgresql+asyncpg://u:p@host/db"
 
 
+def test_get_engine_enables_pre_ping_and_recycle(mocker: MockerFixture) -> None:
+    # Neon can drop a pooled connection server-side (compute suspend on
+    # the free tier, or an idle timeout) independently of anything this
+    # app does - without pre_ping, the next query on that stale
+    # connection fails with asyncpg's InterfaceError: connection is
+    # closed, surfaced all the way up to the caller (confirmed live on
+    # POST /resume/upload). pre_ping catches this at checkout instead of
+    # letting it reach a query; pool_recycle proactively retires old
+    # connections as a second line of defense.
+    mocker.patch(
+        "app.core.db.get_settings",
+        return_value=Settings(
+            database_url="postgresql://u:p@host/db",
+            gemini_api_key="test-key",
+            gemini_resume_parsing_model="gemini-3.8-flash",
+        ),
+    )
+    fake_create_engine = mocker.patch("app.core.db.create_async_engine")
+    get_engine.cache_clear()
+
+    get_engine()
+
+    assert fake_create_engine.call_args.kwargs["pool_pre_ping"] is True
+    assert fake_create_engine.call_args.kwargs["pool_recycle"] == 300
+
+    get_engine.cache_clear()
+
+
+def test_get_engine_disables_asyncpg_statement_cache(mocker: MockerFixture) -> None:
+    # DATABASE_URL points at Neon's "-pooler" (PgBouncer transaction-mode)
+    # endpoint - the right choice for a long-running server, but
+    # transaction pooling multiplexes client transactions across
+    # different backend connections, which breaks asyncpg's default
+    # server-side prepared statement cache (DuplicatePreparedStatementError
+    # / "prepared statement does not exist" under concurrent load - a
+    # documented asyncpg+PgBouncer incompatibility). statement_cache_size=0
+    # turns that caching off.
+    mocker.patch(
+        "app.core.db.get_settings",
+        return_value=Settings(
+            database_url="postgresql://u:p@host/db",
+            gemini_api_key="test-key",
+            gemini_resume_parsing_model="gemini-3.8-flash",
+        ),
+    )
+    fake_create_engine = mocker.patch("app.core.db.create_async_engine")
+    get_engine.cache_clear()
+
+    get_engine()
+
+    assert (
+        fake_create_engine.call_args.kwargs["connect_args"]["statement_cache_size"] == 0
+    )
+
+    get_engine.cache_clear()
+
+
 def test_get_engine_builds_asyncpg_url_and_is_cached(mocker: MockerFixture) -> None:
     mocker.patch(
         "app.core.db.get_settings",
