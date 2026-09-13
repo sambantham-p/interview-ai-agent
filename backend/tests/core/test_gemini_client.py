@@ -301,6 +301,112 @@ async def test_extract_structured_requires_thinking_level_to_be_specified(
         )
 
 
+async def test_extract_structured_accepts_multi_turn_content_history(
+    mocker: MockerFixture,
+) -> None:
+    # The Interviewer agent passes a full Content history (one per past
+    # turn), not a single-turn Part list - this must go straight through
+    # to generate_content rather than being re-wrapped into one Content.
+    fake_response = mocker.MagicMock()
+    fake_response.parsed = _FakeExtraction(value="parsed")
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(
+        return_value=fake_response
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+    history = [
+        types.Content(role="user", parts=[types.Part.from_text(text="turn 1")]),
+        types.Content(role="model", parts=[types.Part.from_text(text="reply 1")]),
+    ]
+
+    await extract_structured(
+        model="gemini-3.8-flash",
+        contents=history,
+        text_format=_FakeExtraction,
+        system_instruction="Continue the conversation.",
+        thinking_level="high",
+    )
+
+    call_kwargs = fake_client.aio.models.generate_content.call_args.kwargs
+    assert call_kwargs["contents"] == history
+
+
+async def test_extract_structured_calls_on_usage_with_usage_metadata_on_success(
+    mocker: MockerFixture,
+) -> None:
+    fake_response = mocker.MagicMock()
+    fake_response.parsed = _FakeExtraction(value="parsed")
+    fake_response.usage_metadata = types.GenerateContentResponseUsageMetadata(
+        total_token_count=9
+    )
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(
+        return_value=fake_response
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+    on_usage = mocker.MagicMock()
+
+    await extract_structured(
+        model="gemini-3.8-flash",
+        contents=[types.Part.from_text(text="hi")],
+        text_format=_FakeExtraction,
+        system_instruction="Extract the value.",
+        thinking_level="high",
+        on_usage=on_usage,
+    )
+
+    on_usage.assert_called_once_with(fake_response.usage_metadata)
+
+
+async def test_extract_structured_calls_on_usage_with_none_on_transient_failure(
+    mocker: MockerFixture,
+) -> None:
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(
+        side_effect=httpx.ConnectError("down")
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+    on_usage = mocker.MagicMock()
+
+    with pytest.raises(GeminiTransientError):
+        await extract_structured(
+            model="gemini-3.8-flash",
+            contents=[types.Part.from_text(text="hi")],
+            text_format=_FakeExtraction,
+            system_instruction="Extract the value.",
+            thinking_level="high",
+            on_usage=on_usage,
+        )
+
+    on_usage.assert_called_once_with(None)
+
+
+async def test_extract_structured_calls_on_usage_with_none_on_parse_failure(
+    mocker: MockerFixture,
+) -> None:
+    fake_response = mocker.MagicMock()
+    fake_response.parsed = None
+    fake_response.text = "not valid json"
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(
+        return_value=fake_response
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+    on_usage = mocker.MagicMock()
+
+    with pytest.raises(GeminiResponseParseError):
+        await extract_structured(
+            model="gemini-3.8-flash",
+            contents=[types.Part.from_text(text="hi")],
+            text_format=_FakeExtraction,
+            system_instruction="Extract the value.",
+            thinking_level="high",
+            on_usage=on_usage,
+        )
+
+    on_usage.assert_called_once_with(None)
+
+
 async def test_extract_structured_requires_system_instruction_to_be_specified(
     mocker: MockerFixture,
 ) -> None:

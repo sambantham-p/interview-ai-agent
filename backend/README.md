@@ -13,12 +13,12 @@ it.
 | Database | Postgres (Neon, free tier) |
 | ORM / driver | SQLAlchemy (async) + `asyncpg` |
 | Migrations | Alembic |
-| Vector search (RAG) | `pgvector` on Postgres |
+| Vector search (RAG — technical-question bank only, not GitHub content) | `pgvector` on Postgres |
 | LLM provider | Google Gemini (`google-genai` — chat, native audio STT) |
 | Voice TTS | ElevenLabs |
-| Resume parsing | `pypdf` |
-| Code execution (coding challenge) | Judge0 CE via RapidAPI (plain REST, no SDK) |
-| External REST calls (GitHub, LeetCode unofficial API, Judge0) | `httpx` |
+| Resume parsing | Gemini native PDF input (`google-genai`), not `pypdf` |
+| GitHub grounding (Interview Phase 2) | live tool-calling — Gemini native function calling over an `httpx` GitHub REST client, no embeddings/vector index |
+| External REST calls (GitHub) | `httpx` |
 | Config | `pydantic-settings`, env vars in `.env` (see `.env.example`) |
 | Testing | `pytest`, `pytest-cov`, `pytest-asyncio`, `pytest-mock`, `httpx` (`TestClient`) |
 | Linting / security | `ruff`, `bandit`, `pre-commit` (`requirements-dev.txt`) |
@@ -111,7 +111,7 @@ uv pip install --python .venv/bin/python -r requirements-dev.txt   # lint/securi
 ```
 
 Copy `.env.example` to `.env` and fill in real values before running
-anything that touches Postgres/Gemini/ElevenLabs/Judge0/GitHub.
+anything that touches Postgres/Gemini/ElevenLabs/GitHub.
 
 ## Database
 
