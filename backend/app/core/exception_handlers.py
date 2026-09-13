@@ -8,6 +8,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.gemini_client import GeminiResponseParseError, GeminiTransientError
 from app.core.responses import error_response
 from app.services.jd_service import JobDescriptionExtractionError
+from app.services.resume_service import ResumeExtractionError
 
 
 async def handle_http_exception(
@@ -66,6 +67,17 @@ async def handle_job_description_extraction_error(
     )
 
 
+async def handle_resume_extraction_error(
+    request: Request, exc: ResumeExtractionError
+) -> JSONResponse:
+    # Deliberate stop, not transient - nothing usable extracted, don't
+    # persist an empty profile.
+    return error_response(
+        message=str(exc),
+        status_code=httpx.codes.UNPROCESSABLE_ENTITY,
+    )
+
+
 async def handle_unexpected_exception(request: Request, exc: Exception) -> JSONResponse:
     return error_response(
         message="Internal server error", status_code=httpx.codes.INTERNAL_SERVER_ERROR
@@ -82,4 +94,5 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         JobDescriptionExtractionError, handle_job_description_extraction_error
     )
+    app.add_exception_handler(ResumeExtractionError, handle_resume_extraction_error)
     app.add_exception_handler(Exception, handle_unexpected_exception)

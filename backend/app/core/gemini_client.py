@@ -1,6 +1,7 @@
 import time
+from collections.abc import Callable
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, cast
 
 import httpx
 import structlog
@@ -54,6 +55,14 @@ _THINKING_LEVELS: dict[ThinkingLevel, types.ThinkingLevel] = {
 }
 
 
+def thinking_config_for(thinking_level: ThinkingLevel) -> types.ThinkingConfig:
+    """Maps the plain ThinkingLevel literal to the SDK's exact enum
+    shared by extract_structured() and any other caller that builds
+    its own GenerateContentConfig.
+    """
+    return types.ThinkingConfig(thinking_level=_THINKING_LEVELS[thinking_level])
+
+
 @lru_cache
 def get_gemini_client() -> genai.Client:
     """Cached Gemini client, built lazily like get_engine() in db.py."""
@@ -72,11 +81,13 @@ def get_gemini_client() -> genai.Client:
 async def extract_structured[T: BaseModel](
     *,
     model: str,
-    contents: list[types.Part],
+    contents: list[types.Part] | list[types.Content],
     text_format: type[T],
     system_instruction: str,
     thinking_level: ThinkingLevel,
     seed: int | None = None,
+    on_usage: Callable[[types.GenerateContentResponseUsageMetadata | None], None]
+    | None = None,
 ) -> T:
     """Call generate_content and return the response validated as
     text_format.
@@ -87,27 +98,40 @@ async def extract_structured[T: BaseModel](
     retryable Gemini-side failure (network error, 5xx, 429 rate limit).
     Any other error propagates unchanged.
 
+    contents is either a single turn's Parts (wrapped into one Content -
+    the resume/JD extraction shape) or a full multi-turn Content history
+    (the Interviewer agent's shape, one Content per past turn) - passed
+    straight through in the latter case so the model sees prior turns.
+
     thinking_level has no default - every caller must pick an effort
     level explicitly. seed is optional; pass a fixed value where
     identical input should reliably produce identical output (e.g.
     resume extraction), leave it unset where natural variation is fine.
+    on_usage, if given, is called with the response's usage metadata
+    (or None on failure) - lets the LLM Gateway capture token counts for
+    its Postgres call-logging without this function's return type
+    carrying usage on every caller's behalf.
     """
     client = get_gemini_client()
     log = logger.bind(model=model, text_format=text_format.__name__)
     start_time = time.monotonic()
     log.info("gemini.generate_content.start", thinking_level=thinking_level)
 
+    gen_contents: types.Content | list[types.Content]
+    if contents and isinstance(contents[0], types.Part):
+        gen_contents = types.Content(parts=cast(list[types.Part], contents))
+    else:
+        gen_contents = cast(list[types.Content], contents)
+
     try:
         response = await client.aio.models.generate_content(
             model=model,
-            contents=types.Content(parts=contents),
+            contents=cast(types.ContentListUnion, gen_contents),
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 response_mime_type="application/json",
                 response_schema=text_format,
-                thinking_config=types.ThinkingConfig(
-                    thinking_level=_THINKING_LEVELS[thinking_level]
-                ),
+                thinking_config=thinking_config_for(thinking_level),
                 seed=seed,
             ),
         )
@@ -116,6 +140,8 @@ async def extract_structured[T: BaseModel](
             "gemini.generate_content.error",
             duration_seconds=time.monotonic() - start_time,
         )
+        if on_usage is not None:
+            on_usage(None)
         is_rate_limited = (
             isinstance(exc, ClientError) and exc.code == GEMINI_RATE_LIMIT_STATUS_CODE
         )
@@ -131,12 +157,16 @@ async def extract_structured[T: BaseModel](
             duration_seconds=duration_seconds,
             response_text=response.text,
         )
+        if on_usage is not None:
+            on_usage(None)
         raise GeminiResponseParseError(
             f"Gemini response did not parse into {text_format.__name__}: "
             f"{response.text!r}"
         )
 
     usage = response.usage_metadata
+    if on_usage is not None:
+        on_usage(usage)
     log.info(
         "gemini.generate_content.success",
         duration_seconds=duration_seconds,

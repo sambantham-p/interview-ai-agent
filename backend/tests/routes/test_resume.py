@@ -6,6 +6,7 @@ from pytest_mock import MockerFixture
 from app.core.gemini_client import GeminiResponseParseError, GeminiTransientError
 from app.main import app
 from app.models.candidate_profile import CandidateProfile
+from app.services.resume_service import ResumeExtractionError
 
 
 def _fake_upload_file() -> tuple[str, tuple[str, bytes, str]]:
@@ -163,6 +164,28 @@ def test_upload_resume_returns_502_when_gemini_response_does_not_parse(
 
     assert response.status_code == 502
     assert response.json()["success"] is False
+
+
+def test_upload_resume_returns_422_when_nothing_usable_was_extracted(
+    client: TestClient, mocker: MockerFixture
+) -> None:
+    # A blank/image-only PDF that still passes the magic-bytes check but
+    # extracts nothing usable must not silently persist an empty profile.
+    mocker.patch(
+        "app.routes.resume.parse_and_persist_resume",
+        side_effect=ResumeExtractionError(
+            "Could not extract any education, experience, projects, or "
+            "skills from this resume"
+        ),
+        new_callable=mocker.AsyncMock,
+    )
+
+    response = client.post("/api/v1/resume/upload", files=dict([_fake_upload_file()]))
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["success"] is False
+    assert "Could not extract" in body["error"]["message"]
 
 
 def test_upload_resume_returns_500_for_an_unexpected_failure(

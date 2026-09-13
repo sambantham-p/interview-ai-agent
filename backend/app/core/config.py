@@ -17,6 +17,24 @@ class GeminiSettings(BaseSettings):
     gemini_jd_parsing_model: str
 
 
+class GatewaySettings(BaseSettings):
+    """Configuration for routing LLM tasks to specific models.
+    Defines the model to use for each task or agent role, keeping model
+    selection centralized in configuration. Add a field here when a new
+    task requires its own model.
+    """
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    gemini_interviewer_model: str
+
+    def model_for_task(self, task: str) -> str:
+        routes = {"interviewer": self.gemini_interviewer_model}
+        if task not in routes:
+            raise KeyError(f"No model route configured for task {task!r}")
+        return routes[task]
+
+
 @lru_cache
 def get_database_settings() -> DatabaseSettings:
     return DatabaseSettings()
@@ -25,3 +43,8 @@ def get_database_settings() -> DatabaseSettings:
 @lru_cache
 def get_gemini_settings() -> GeminiSettings:
     return GeminiSettings()
+
+
+@lru_cache
+def get_gateway_settings() -> GatewaySettings:
+    return GatewaySettings()

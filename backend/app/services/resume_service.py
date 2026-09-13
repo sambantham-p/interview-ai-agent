@@ -11,6 +11,14 @@ from app.core.gemini_client import (
 from app.models.candidate_profile import CandidateProfile
 from app.schemas.resume import ResumeExtraction
 
+
+class ResumeExtractionError(Exception):
+    """Raised when Gemini extracted nothing usable from the resume -
+    distinct from GeminiResponseParseError, which means the response
+    itself didn't parse.
+    """
+
+
 EXTRACTION_INSTRUCTIONS = (
     "Extract structured data from the entire resume. Read all pages and all "
     "content before answering, including every column in multi-column layouts. "
@@ -33,6 +41,11 @@ async def parse_and_persist_resume(
 ) -> CandidateProfile:
     """Parse a resume PDF via Gemini structured-output extraction and
     persist it as a new CandidateProfile row.
+
+    Raises ResumeExtractionError if nothing usable was extracted - no row
+    is created, so the candidate can't proceed to an interview built on
+    an empty profile (mirrors parse_and_persist_job_description's
+    required-fields check in app/services/jd_service.py).
     """
     extracted = await extract_structured(
         model=get_gemini_settings().gemini_resume_parsing_model,
@@ -48,6 +61,18 @@ async def parse_and_persist_resume(
         thinking_level="medium",
         seed=GEMINI_RESUME_EXTRACTION_SEED,
     )
+
+    if not (
+        extracted.education
+        or extracted.experience
+        or extracted.projects
+        or extracted.skills
+    ):
+        raise ResumeExtractionError(
+            "Could not extract any education, experience, projects, or "
+            "skills from this resume - check the file isn't blank, "
+            "corrupted, or a scanned image with no selectable text"
+        )
 
     profile = CandidateProfile(
         education=[entry.model_dump() for entry in extracted.education],
