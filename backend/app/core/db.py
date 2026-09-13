@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 from functools import lru_cache
 from urllib.parse import urlsplit, urlunsplit
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -33,7 +34,10 @@ def get_engine() -> AsyncEngine:
     # never requires DATABASE_URL to be set - only actually using the
     # engine does.
     return create_async_engine(
-        to_asyncpg_url(get_settings().database_url), connect_args={"ssl": True}
+        to_asyncpg_url(get_settings().database_url),
+        connect_args={"ssl": True, "statement_cache_size": 0},
+        pool_pre_ping=True,
+        pool_recycle=300,
     )
 
 
@@ -44,3 +48,11 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 async def get_db() -> AsyncGenerator[AsyncSession]:
     async with get_session_factory()() as session:
         yield session
+
+
+async def ping() -> None:
+    """Verify Postgres is actually reachable - call at app startup so a
+    bad DATABASE_URL or unreachable DB fails fast, not on the first request.
+    """
+    async with get_engine().connect() as conn:
+        await conn.execute(text("SELECT 1"))
