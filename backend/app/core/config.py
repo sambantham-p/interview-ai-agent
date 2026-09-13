@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     database_url: str
     gemini_api_key: str
     gemini_resume_parsing_model: str
+    gemini_jd_parsing_model: str
 
 
 @lru_cache

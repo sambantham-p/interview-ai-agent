@@ -16,6 +16,7 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
     os.environ.setdefault("GEMINI_API_KEY", "test-key")
     os.environ.setdefault("GEMINI_RESUME_PARSING_MODEL", "gemini-3.8-flash")
+    os.environ.setdefault("GEMINI_JD_PARSING_MODEL", "gemini-3.8-flash")
 
 
 @pytest.fixture()

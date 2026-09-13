@@ -33,6 +33,7 @@ def test_get_gemini_client_uses_api_key_from_settings(mocker: MockerFixture) -> 
             database_url="postgresql://u:p@host/db",
             gemini_api_key="key-from-settings",
             gemini_resume_parsing_model="gemini-3.8-flash",
+            gemini_jd_parsing_model="gemini-3.8-flash",
         ),
     )
     fake_client_cls = mocker.patch("app.core.gemini_client.genai.Client")
@@ -52,6 +53,7 @@ def test_get_gemini_client_enables_retries(mocker: MockerFixture) -> None:
             database_url="postgresql://u:p@host/db",
             gemini_api_key="test-key",
             gemini_resume_parsing_model="gemini-3.8-flash",
+            gemini_jd_parsing_model="gemini-3.8-flash",
         ),
     )
     fake_client_cls = mocker.patch("app.core.gemini_client.genai.Client")
@@ -70,6 +72,7 @@ def test_get_gemini_client_is_cached(mocker: MockerFixture) -> None:
             database_url="postgresql://u:p@host/db",
             gemini_api_key="test-key",
             gemini_resume_parsing_model="gemini-3.8-flash",
+            gemini_jd_parsing_model="gemini-3.8-flash",
         ),
     )
 

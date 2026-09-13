@@ -41,6 +41,7 @@ def test_get_engine_enables_pre_ping_and_recycle(mocker: MockerFixture) -> None:
             database_url="postgresql://u:p@host/db",
             gemini_api_key="test-key",
             gemini_resume_parsing_model="gemini-3.8-flash",
+            gemini_jd_parsing_model="gemini-3.8-flash",
         ),
     )
     fake_create_engine = mocker.patch("app.core.db.create_async_engine")
@@ -69,6 +70,7 @@ def test_get_engine_disables_asyncpg_statement_cache(mocker: MockerFixture) -> N
             database_url="postgresql://u:p@host/db",
             gemini_api_key="test-key",
             gemini_resume_parsing_model="gemini-3.8-flash",
+            gemini_jd_parsing_model="gemini-3.8-flash",
         ),
     )
     fake_create_engine = mocker.patch("app.core.db.create_async_engine")
@@ -90,6 +92,7 @@ def test_get_engine_builds_asyncpg_url_and_is_cached(mocker: MockerFixture) -> N
             database_url="postgresql://u:p@host/db",
             gemini_api_key="test-key",
             gemini_resume_parsing_model="gemini-3.8-flash",
+            gemini_jd_parsing_model="gemini-3.8-flash",
         ),
     )
     get_engine.cache_clear()
@@ -112,6 +115,7 @@ def test_get_session_factory_is_bound_to_get_engine(mocker: MockerFixture) -> No
             database_url="postgresql://u:p@host/db",
             gemini_api_key="test-key",
             gemini_resume_parsing_model="gemini-3.8-flash",
+            gemini_jd_parsing_model="gemini-3.8-flash",
         ),
     )
     get_engine.cache_clear()
