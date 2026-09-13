@@ -2,8 +2,8 @@ from google.genai import types
 from pydantic import BaseModel
 from pytest_mock import MockerFixture
 
-from app.core.config import GatewaySettings
-from app.core.llm_gateway import generate_structured, stream_text
+from app.core.config import ElevenLabsSettings, GatewaySettings
+from app.core.llm_gateway import generate_structured, stream_text, synthesize_speech
 
 
 class _FakeOutput(BaseModel):
@@ -200,6 +200,66 @@ async def test_stream_text_logs_error_when_stream_raises(mocker: MockerFixture) 
 
     logged = fake_db.add.call_args.args[0]
     assert logged.error == "stream blew up"
+
+
+def _mock_elevenlabs_settings(mocker: MockerFixture) -> None:
+    mocker.patch(
+        "app.core.llm_gateway.get_elevenlabs_settings",
+        return_value=ElevenLabsSettings(
+            elevenlabs_api_key="test-key",
+            elevenlabs_voice_id="voice-1",
+            elevenlabs_model_id="eleven_multilingual_v2",
+        ),
+    )
+
+
+async def test_synthesize_speech_returns_audio_and_logs_character_count(
+    mocker: MockerFixture,
+) -> None:
+    _mock_elevenlabs_settings(mocker)
+    mocker.patch(
+        "app.core.llm_gateway._synthesize_speech",
+        new_callable=mocker.AsyncMock,
+        return_value=b"fake-audio-bytes",
+    )
+    fake_db = mocker.AsyncMock()
+    fake_db.add = mocker.MagicMock()
+
+    result = await synthesize_speech(text="hello there", session_id=5, db=fake_db)
+
+    assert result == b"fake-audio-bytes"
+    logged = fake_db.add.call_args.args[0]
+    assert logged.task == "tts"
+    assert logged.model == "eleven_multilingual_v2"
+    assert logged.session_id == 5
+    assert logged.prompt == "hello there"
+    assert logged.extra == {"character_count": len("hello there")}
+    assert logged.error is None
+    fake_db.commit.assert_awaited_once()
+
+
+async def test_synthesize_speech_logs_error_and_reraises(
+    mocker: MockerFixture,
+) -> None:
+    _mock_elevenlabs_settings(mocker)
+    mocker.patch(
+        "app.core.llm_gateway._synthesize_speech",
+        new_callable=mocker.AsyncMock,
+        side_effect=RuntimeError("elevenlabs down"),
+    )
+    fake_db = mocker.AsyncMock()
+    fake_db.add = mocker.MagicMock()
+
+    try:
+        await synthesize_speech(text="hello", session_id=None, db=fake_db)
+        raise AssertionError("expected RuntimeError to propagate")
+    except RuntimeError:
+        pass
+
+    logged = fake_db.add.call_args.args[0]
+    assert logged.error == "elevenlabs down"
+    assert logged.response == ""
+    assert logged.extra == {"character_count": len("hello")}
 
 
 def test_gateway_settings_model_for_task_resolves_interviewer() -> None:

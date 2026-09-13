@@ -11,7 +11,7 @@ from app.core.exception_handlers import register_exception_handlers
 from app.core.gemini_client import get_gemini_client
 from app.core.logging import configure_logging
 from app.core.request_logging import RequestLoggingMiddleware
-from app.routes import health, interview, jd, resume
+from app.routes import health, interview, jd, resume, voice
 
 configure_logging()
 
@@ -67,3 +67,4 @@ app.include_router(health.router, prefix=API_V1_PREFIX)
 app.include_router(resume.router, prefix=API_V1_PREFIX)
 app.include_router(jd.router, prefix=API_V1_PREFIX)
 app.include_router(interview.router, prefix=API_V1_PREFIX)
+app.include_router(voice.router, prefix=API_V1_PREFIX)

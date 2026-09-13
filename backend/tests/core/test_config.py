@@ -1,7 +1,9 @@
 from app.core.config import (
     DatabaseSettings,
+    ElevenLabsSettings,
     GeminiSettings,
     get_database_settings,
+    get_elevenlabs_settings,
     get_gemini_settings,
 )
 
@@ -28,3 +30,17 @@ def test_get_database_settings_is_cached() -> None:
 
 def test_get_gemini_settings_is_cached() -> None:
     assert get_gemini_settings() is get_gemini_settings()
+
+
+def test_elevenlabs_settings_reads_fields_from_explicit_kwargs() -> None:
+    settings = ElevenLabsSettings(
+        elevenlabs_api_key="test-key",
+        elevenlabs_voice_id="voice-1",
+        elevenlabs_model_id="eleven_multilingual_v2",
+    )
+
+    assert settings.elevenlabs_voice_id == "voice-1"
+
+
+def test_get_elevenlabs_settings_is_cached() -> None:
+    assert get_elevenlabs_settings() is get_elevenlabs_settings()

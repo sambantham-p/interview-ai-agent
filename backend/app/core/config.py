@@ -17,6 +17,14 @@ class GeminiSettings(BaseSettings):
     gemini_jd_parsing_model: str
 
 
+class ElevenLabsSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    elevenlabs_api_key: str
+    elevenlabs_voice_id: str
+    elevenlabs_model_id: str
+
+
 class GatewaySettings(BaseSettings):
     """Configuration for routing LLM tasks to specific models.
     Defines the model to use for each task or agent role, keeping model
@@ -48,3 +56,8 @@ def get_gemini_settings() -> GeminiSettings:
 @lru_cache
 def get_gateway_settings() -> GatewaySettings:
     return GatewaySettings()
+
+
+@lru_cache
+def get_elevenlabs_settings() -> ElevenLabsSettings:
+    return ElevenLabsSettings()

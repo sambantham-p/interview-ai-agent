@@ -7,7 +7,9 @@ from google.genai import types
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_gateway_settings
+from app.constants.voice import TTS_TASK
+from app.core.config import get_elevenlabs_settings, get_gateway_settings
+from app.core.elevenlabs_client import synthesize_speech as _synthesize_speech
 from app.core.gemini_client import (
     ThinkingLevel,
     extract_structured,
@@ -53,6 +55,7 @@ async def _log_call(
     latency_seconds: float,
     usage: types.GenerateContentResponseUsageMetadata | None,
     error: str | None,
+    extra: dict | None = None,
 ) -> None:
     """Every LLM Gateway call logs here, success or failure - this is
     the only place that sees which agent role is driving cost/latency,
@@ -70,7 +73,9 @@ async def _log_call(
             total_token_count=usage.total_token_count if usage else None,
             latency_seconds=latency_seconds,
             error=error,
-            extra={
+            extra=extra
+            if extra is not None
+            else {
                 "cached_content_token_count": (
                     usage.cached_content_token_count if usage else None
                 )
@@ -211,3 +216,54 @@ async def stream_text(
             usage=usage,
             error=error,
         )
+
+
+async def synthesize_speech(
+    *,
+    text: str,
+    session_id: int | None,
+    db: AsyncSession,
+) -> bytes:
+    """LLM Gateway entry point for text-to-speech using ElevenLabs.
+
+    Calls ElevenLabs and logs the call to the same llm_calls table used for
+    Gemini calls. Reusing llm_calls (task="tts", character count in `extra`,
+    no token counts) is deliberate: it provides the per-interview voice
+    usage data needed to enforce the voice cost cap by summing character
+    counts logged under this session_id.
+    """
+    settings = get_elevenlabs_settings()
+    model = settings.elevenlabs_model_id
+    start_time = time.monotonic()
+    character_count = len(text)
+
+    try:
+        audio_bytes = await _synthesize_speech(text=text)
+    except Exception as exc:
+        await _log_call(
+            db,
+            task=TTS_TASK,
+            model=model,
+            session_id=session_id,
+            prompt=text,
+            response="",
+            latency_seconds=time.monotonic() - start_time,
+            usage=None,
+            error=str(exc),
+            extra={"character_count": character_count},
+        )
+        raise
+
+    await _log_call(
+        db,
+        task=TTS_TASK,
+        model=model,
+        session_id=session_id,
+        prompt=text,
+        response=f"<audio: {len(audio_bytes)} bytes>",
+        latency_seconds=time.monotonic() - start_time,
+        usage=None,
+        error=None,
+        extra={"character_count": character_count},
+    )
+    return audio_bytes

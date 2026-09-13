@@ -19,6 +19,9 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ.setdefault("GEMINI_RESUME_PARSING_MODEL", "gemini-3.8-flash")
     os.environ.setdefault("GEMINI_JD_PARSING_MODEL", "gemini-3.8-flash")
     os.environ.setdefault("GEMINI_INTERVIEWER_MODEL", "gemini-3.8-flash")
+    os.environ.setdefault("ELEVENLABS_API_KEY", "test-key")
+    os.environ.setdefault("ELEVENLABS_VOICE_ID", "test-voice-id")
+    os.environ.setdefault("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
 
 
 @pytest.fixture()
