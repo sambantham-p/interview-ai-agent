@@ -1,0 +1,2 @@
+HEALTH_STATUS_HEALTHY = "healthy"
+HEALTH_STATUS_UNHEALTHY = "unhealthy"
