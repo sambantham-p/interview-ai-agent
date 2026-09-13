@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.core.config import get_settings
+from app.core.config import get_database_settings
 
 
 def to_asyncpg_url(database_url: str) -> str:
@@ -34,7 +34,7 @@ def get_engine() -> AsyncEngine:
     # never requires DATABASE_URL to be set - only actually using the
     # engine does.
     return create_async_engine(
-        to_asyncpg_url(get_settings().database_url),
+        to_asyncpg_url(get_database_settings().database_url),
         connect_args={"ssl": True, "statement_cache_size": 0},
         pool_pre_ping=True,
         pool_recycle=300,

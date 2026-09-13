@@ -1,6 +1,7 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI
 
 from app.constants.app import API_V1_PREFIX, SERVICE_NAME
@@ -14,18 +15,39 @@ from app.routes import health, jd, resume
 
 configure_logging()
 
+logger = structlog.get_logger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    await ping_db()
-    get_gemini_client()
+    # Logged, not raised: a bad DATABASE_URL or Gemini config should be
+    # loud in the logs, but must not stop the process from binding its
+    # port - /health is a liveness check and has to stay reachable even
+    # when a downstream dependency is down (see health.py).
+    try:
+        await ping_db()
+    except Exception:
+        logger.exception("startup_db_ping_failed")
+
+    try:
+        get_gemini_client()
+    except Exception:
+        logger.exception("startup_gemini_client_init_failed")
 
     yield
 
     # Client.close() only closes the sync client - the app only ever uses
     # client.aio (see gemini_client.py), so the sync close leaves that
     # connection pool open. Confirmed via Client.close()'s own docstring.
-    await get_gemini_client().aio.aclose()
+    # get_gemini_client() isn't cached on failure (lru_cache doesn't cache
+    # raised exceptions), so if startup's init above failed, this retries
+    # it - guarded the same way, since a still-bad config shouldn't crash
+    # shutdown either.
+    try:
+        await get_gemini_client().aio.aclose()
+    except Exception:
+        logger.exception("shutdown_gemini_client_close_failed")
+
     await get_engine().dispose()
 
 

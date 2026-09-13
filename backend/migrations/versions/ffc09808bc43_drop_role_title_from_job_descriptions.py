@@ -27,8 +27,7 @@ def downgrade() -> None:
     """Downgrade schema."""
     op.add_column(
         "job_descriptions",
-        sa.Column(
-            "role_title", sa.String(), nullable=False, server_default="unspecified"
-        ),
+        sa.Column("role_title", sa.String(), nullable=True),
     )
-    op.alter_column("job_descriptions", "role_title", server_default=None)
+    op.execute("UPDATE job_descriptions SET role_title = role")
+    op.alter_column("job_descriptions", "role_title", nullable=False)

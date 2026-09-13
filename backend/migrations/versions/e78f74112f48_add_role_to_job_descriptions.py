@@ -22,9 +22,10 @@ def upgrade() -> None:
     """Upgrade schema."""
     op.add_column(
         "job_descriptions",
-        sa.Column("role", sa.String(), nullable=False, server_default="unspecified"),
+        sa.Column("role", sa.String(), nullable=True),
     )
-    op.alter_column("job_descriptions", "role", server_default=None)
+    op.execute("UPDATE job_descriptions SET role = role_title")
+    op.alter_column("job_descriptions", "role", nullable=False)
 
 
 def downgrade() -> None:

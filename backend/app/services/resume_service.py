@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants.gemini import GEMINI_RESUME_EXTRACTION_SEED
 from app.constants.resume import PDF_MIME_TYPE
-from app.core.config import get_settings
+from app.core.config import get_gemini_settings
 from app.core.gemini_client import (
     FileInputRequest,
     build_file_input,
@@ -35,7 +35,7 @@ async def parse_and_persist_resume(
     persist it as a new CandidateProfile row.
     """
     extracted = await extract_structured(
-        model=get_settings().gemini_resume_parsing_model,
+        model=get_gemini_settings().gemini_resume_parsing_model,
         contents=build_file_input(
             FileInputRequest(
                 file_bytes=file_bytes,

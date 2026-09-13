@@ -1,2 +1,4 @@
 PDF_MIME_TYPE = "application/pdf"
 PDF_MAGIC_BYTES = b"%PDF-"
+PDF_EOF_MARKER = b"%%EOF"
+MAX_RESUME_SIZE_BYTES = 10 * 1024 * 1024

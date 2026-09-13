@@ -48,9 +48,11 @@ async def handle_gemini_transient_error(
 async def handle_gemini_response_parse_error(
     request: Request, exc: GeminiResponseParseError
 ) -> JSONResponse:
+    # Gemini returned a response that didn't match the requested schema -
+    # a provider-side failure, not an invalid submission, so this isn't a 422.
     return error_response(
-        message="Gemini could not process this submission right now",
-        status_code=httpx.codes.UNPROCESSABLE_ENTITY,
+        message="Gemini returned an unexpected response, try again shortly",
+        status_code=httpx.codes.BAD_GATEWAY,
     )
 
 

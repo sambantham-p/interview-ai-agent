@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants.gemini import GEMINI_JD_EXTRACTION_SEED
 from app.constants.jd import MIN_FULL_TEXT_WORD_COUNT, MIN_SHORT_DESCRIPTION_WORD_COUNT
-from app.core.config import get_settings
+from app.core.config import get_gemini_settings
 from app.core.gemini_client import extract_structured
 from app.models.job_description import JobDescription
 from app.schemas.jd import SENIORITY_LEVELS, JobDescriptionExtraction
@@ -70,7 +70,7 @@ async def parse_and_persist_job_description(
     assert input_text is not None  # nosec B101
 
     extracted = await extract_structured(
-        model=get_settings().gemini_jd_parsing_model,
+        model=get_gemini_settings().gemini_jd_parsing_model,
         contents=[types.Part.from_text(text=input_text)],
         system_instruction=EXTRACTION_INSTRUCTIONS,
         text_format=JobDescriptionExtraction,
@@ -89,6 +89,12 @@ async def parse_and_persist_job_description(
         raise JobDescriptionExtractionError(
             f"Could not determine: {', '.join(missing)} - add more detail "
             "to the job description"
+        )
+
+    if extracted.seniority not in SENIORITY_LEVELS:
+        raise JobDescriptionExtractionError(
+            f"Extracted seniority '{extracted.seniority}' is not one of: "
+            f"{', '.join(SENIORITY_LEVELS)}"
         )
 
     jd = JobDescription(

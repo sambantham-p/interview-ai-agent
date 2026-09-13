@@ -15,7 +15,7 @@ from app.constants.gemini import (
     GEMINI_RETRY_ATTEMPTS,
     GEMINI_RETRY_MAX_DELAY_SECONDS,
 )
-from app.core.config import get_settings
+from app.core.config import get_gemini_settings
 
 logger = structlog.get_logger(__name__)
 
@@ -58,7 +58,7 @@ _THINKING_LEVELS: dict[ThinkingLevel, types.ThinkingLevel] = {
 def get_gemini_client() -> genai.Client:
     """Cached Gemini client, built lazily like get_engine() in db.py."""
     return genai.Client(
-        api_key=get_settings().gemini_api_key,
+        api_key=get_gemini_settings().gemini_api_key,
         http_options=types.HttpOptions(
             timeout=GEMINI_CLIENT_TIMEOUT_MS,
             retry_options=types.HttpRetryOptions(

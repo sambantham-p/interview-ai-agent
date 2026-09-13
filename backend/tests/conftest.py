@@ -8,8 +8,9 @@ from app.main import app
 
 def pytest_configure(config: pytest.Config) -> None:
     # Tests never need a *real* database/Gemini connection (anything
-    # touching one mocks app.core.config.get_settings directly) - these
-    # fallbacks just satisfy Settings' required fields so the suite runs
+    # touching one mocks app.core.config.get_database_settings/
+    # get_gemini_settings directly) - these fallbacks just satisfy
+    # DatabaseSettings/GeminiSettings' required fields so the suite runs
     # the same way with or without a real backend/.env present (a fresh
     # clone, CI, or mutmut's mirrored `mutants/` tree, which excludes
     # gitignored files like .env).

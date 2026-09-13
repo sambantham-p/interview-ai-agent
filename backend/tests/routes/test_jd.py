@@ -160,7 +160,7 @@ def test_submit_jd_returns_503_for_a_transient_gemini_failure(
     assert response.json()["success"] is False
 
 
-def test_submit_jd_returns_422_when_gemini_response_does_not_parse(
+def test_submit_jd_returns_502_when_gemini_response_does_not_parse(
     client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
@@ -171,7 +171,7 @@ def test_submit_jd_returns_422_when_gemini_response_does_not_parse(
 
     response = client.post("/api/v1/jd", json={"full_text": "a real JD"})
 
-    assert response.status_code == 422
+    assert response.status_code == 502
     assert response.json()["success"] is False
 
 

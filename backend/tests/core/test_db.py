@@ -1,7 +1,7 @@
 import pytest
 from pytest_mock import MockerFixture
 
-from app.core.config import Settings
+from app.core.config import DatabaseSettings
 from app.core.db import get_db, get_engine, get_session_factory, ping, to_asyncpg_url
 
 
@@ -36,13 +36,8 @@ def test_get_engine_enables_pre_ping_and_recycle(mocker: MockerFixture) -> None:
     # letting it reach a query; pool_recycle proactively retires old
     # connections as a second line of defense.
     mocker.patch(
-        "app.core.db.get_settings",
-        return_value=Settings(
-            database_url="postgresql://u:p@host/db",
-            gemini_api_key="test-key",
-            gemini_resume_parsing_model="gemini-3.8-flash",
-            gemini_jd_parsing_model="gemini-3.8-flash",
-        ),
+        "app.core.db.get_database_settings",
+        return_value=DatabaseSettings(database_url="postgresql://u:p@host/db"),
     )
     fake_create_engine = mocker.patch("app.core.db.create_async_engine")
     get_engine.cache_clear()
@@ -65,13 +60,8 @@ def test_get_engine_disables_asyncpg_statement_cache(mocker: MockerFixture) -> N
     # documented asyncpg+PgBouncer incompatibility). statement_cache_size=0
     # turns that caching off.
     mocker.patch(
-        "app.core.db.get_settings",
-        return_value=Settings(
-            database_url="postgresql://u:p@host/db",
-            gemini_api_key="test-key",
-            gemini_resume_parsing_model="gemini-3.8-flash",
-            gemini_jd_parsing_model="gemini-3.8-flash",
-        ),
+        "app.core.db.get_database_settings",
+        return_value=DatabaseSettings(database_url="postgresql://u:p@host/db"),
     )
     fake_create_engine = mocker.patch("app.core.db.create_async_engine")
     get_engine.cache_clear()
@@ -87,13 +77,8 @@ def test_get_engine_disables_asyncpg_statement_cache(mocker: MockerFixture) -> N
 
 def test_get_engine_builds_asyncpg_url_and_is_cached(mocker: MockerFixture) -> None:
     mocker.patch(
-        "app.core.db.get_settings",
-        return_value=Settings(
-            database_url="postgresql://u:p@host/db",
-            gemini_api_key="test-key",
-            gemini_resume_parsing_model="gemini-3.8-flash",
-            gemini_jd_parsing_model="gemini-3.8-flash",
-        ),
+        "app.core.db.get_database_settings",
+        return_value=DatabaseSettings(database_url="postgresql://u:p@host/db"),
     )
     get_engine.cache_clear()
 
@@ -110,13 +95,8 @@ def test_get_engine_builds_asyncpg_url_and_is_cached(mocker: MockerFixture) -> N
 
 def test_get_session_factory_is_bound_to_get_engine(mocker: MockerFixture) -> None:
     mocker.patch(
-        "app.core.db.get_settings",
-        return_value=Settings(
-            database_url="postgresql://u:p@host/db",
-            gemini_api_key="test-key",
-            gemini_resume_parsing_model="gemini-3.8-flash",
-            gemini_jd_parsing_model="gemini-3.8-flash",
-        ),
+        "app.core.db.get_database_settings",
+        return_value=DatabaseSettings(database_url="postgresql://u:p@host/db"),
     )
     get_engine.cache_clear()
 

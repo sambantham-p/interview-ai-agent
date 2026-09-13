@@ -9,7 +9,7 @@ from app.models.candidate_profile import CandidateProfile
 
 
 def _fake_upload_file() -> tuple[str, tuple[str, bytes, str]]:
-    return "file", ("resume.pdf", b"%PDF-1.4 fake pdf bytes", "application/pdf")
+    return "file", ("resume.pdf", b"%PDF-1.4 fake pdf bytes %%EOF", "application/pdf")
 
 
 def test_upload_resume_rejects_content_without_a_pdf_signature(
@@ -40,6 +40,36 @@ def test_upload_resume_rejects_non_pdf_bytes_even_if_labeled_as_pdf(
     assert response.json()["success"] is False
 
 
+def test_upload_resume_rejects_a_pdf_signature_with_no_eof_trailer(
+    client: TestClient,
+) -> None:
+    # A truncated/malformed file can still start with the PDF magic bytes -
+    # the trailing %%EOF marker catches what the header check alone misses.
+    response = client.post(
+        "/api/v1/resume/upload",
+        files={"file": ("resume.pdf", b"%PDF-1.4 no trailer here", "application/pdf")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["success"] is False
+
+
+def test_upload_resume_rejects_a_file_over_the_size_limit(
+    client: TestClient,
+) -> None:
+    from app.constants.resume import MAX_RESUME_SIZE_BYTES
+
+    oversized = b"%PDF-1.4 " + b"a" * MAX_RESUME_SIZE_BYTES + b" %%EOF"
+
+    response = client.post(
+        "/api/v1/resume/upload",
+        files={"file": ("resume.pdf", oversized, "application/pdf")},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["success"] is False
+
+
 def test_upload_resume_accepts_a_real_pdf_with_a_generic_content_type(
     client: TestClient, mocker: MockerFixture
 ) -> None:
@@ -65,7 +95,7 @@ def test_upload_resume_accepts_a_real_pdf_with_a_generic_content_type(
         files={
             "file": (
                 "resume.pdf",
-                b"%PDF-1.4 fake pdf bytes",
+                b"%PDF-1.4 fake pdf bytes %%EOF",
                 "application/octet-stream",
             )
         },
@@ -120,7 +150,7 @@ def test_upload_resume_returns_503_for_a_transient_gemini_failure(
     assert response.json()["success"] is False
 
 
-def test_upload_resume_returns_422_when_gemini_response_does_not_parse(
+def test_upload_resume_returns_502_when_gemini_response_does_not_parse(
     client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
@@ -131,7 +161,7 @@ def test_upload_resume_returns_422_when_gemini_response_does_not_parse(
 
     response = client.post("/api/v1/resume/upload", files=dict([_fake_upload_file()]))
 
-    assert response.status_code == 422
+    assert response.status_code == 502
     assert response.json()["success"] is False
 
 

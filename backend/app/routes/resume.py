@@ -3,7 +3,12 @@ from fastapi import APIRouter, Depends, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.constants.resume import PDF_MAGIC_BYTES, PDF_MIME_TYPE
+from app.constants.resume import (
+    MAX_RESUME_SIZE_BYTES,
+    PDF_EOF_MARKER,
+    PDF_MAGIC_BYTES,
+    PDF_MIME_TYPE,
+)
 from app.core.db import get_db
 from app.core.responses import error_response, success_response
 from app.schemas.resume import ResumeUploadResponse
@@ -23,9 +28,18 @@ async def upload_resume(
     the app-wide handlers registered in app/core/exception_handlers.py;
     anything else falls through to that module's generic 500 handler.
     """
-    contents = await file.read()
+    contents = await file.read(MAX_RESUME_SIZE_BYTES + 1)
 
-    if not contents.startswith(PDF_MAGIC_BYTES):
+    if len(contents) > MAX_RESUME_SIZE_BYTES:
+        return error_response(
+            message="Resume file is too large",
+            status_code=httpx.codes.REQUEST_ENTITY_TOO_LARGE,
+        )
+
+    if (
+        not contents.startswith(PDF_MAGIC_BYTES)
+        or PDF_EOF_MARKER not in contents[-1024:]
+    ):
         return error_response(
             message=f"Expected a {PDF_MIME_TYPE} file",
             status_code=httpx.codes.UNPROCESSABLE_ENTITY,

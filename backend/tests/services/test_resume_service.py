@@ -25,7 +25,7 @@ async def test_parse_and_persist_resume_builds_and_persists_a_candidate_profile(
         new_callable=mocker.AsyncMock,
     )
     mocker.patch(
-        "app.services.resume_service.get_settings",
+        "app.services.resume_service.get_gemini_settings",
         return_value=mocker.MagicMock(gemini_resume_parsing_model="gemini-3.8-flash"),
     )
     fake_db = mocker.AsyncMock()

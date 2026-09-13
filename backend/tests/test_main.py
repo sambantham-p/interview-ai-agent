@@ -24,6 +24,27 @@ def test_lifespan_pings_db_and_prepares_gemini_client_on_startup(
     fake_get_gemini_client.assert_called()
 
 
+def test_lifespan_startup_survives_db_and_gemini_failures(
+    mocker: MockerFixture,
+) -> None:
+    # /health is a liveness check with no dependency on DB/Gemini (see
+    # app/routes/health.py) - startup must not raise when either
+    # dependency is down, or the app never binds its port and /health
+    # becomes unreachable too.
+    mocker.patch("app.main.ping_db", side_effect=RuntimeError("db unreachable"))
+    mocker.patch(
+        "app.main.get_gemini_client", side_effect=RuntimeError("bad gemini config")
+    )
+    fake_engine = mocker.MagicMock()
+    fake_engine.dispose = mocker.AsyncMock()
+    mocker.patch("app.main.get_engine", return_value=fake_engine)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/health")
+
+    assert response.status_code == 200
+
+
 def test_lifespan_closes_gemini_client_and_disposes_db_engine_on_shutdown(
     mocker: MockerFixture,
 ) -> None:

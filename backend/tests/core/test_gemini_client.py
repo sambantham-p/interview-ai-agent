@@ -7,7 +7,7 @@ from google.genai.errors import ClientError, ServerError
 from pydantic import BaseModel, ValidationError
 from pytest_mock import MockerFixture
 
-from app.core.config import Settings
+from app.core.config import GeminiSettings
 from app.core.gemini_client import (
     FileInputRequest,
     GeminiResponseParseError,
@@ -28,9 +28,8 @@ def _clear_client_cache() -> Iterator[None]:
 
 def test_get_gemini_client_uses_api_key_from_settings(mocker: MockerFixture) -> None:
     mocker.patch(
-        "app.core.gemini_client.get_settings",
-        return_value=Settings(
-            database_url="postgresql://u:p@host/db",
+        "app.core.gemini_client.get_gemini_settings",
+        return_value=GeminiSettings(
             gemini_api_key="key-from-settings",
             gemini_resume_parsing_model="gemini-3.8-flash",
             gemini_jd_parsing_model="gemini-3.8-flash",
@@ -48,9 +47,8 @@ def test_get_gemini_client_enables_retries(mocker: MockerFixture) -> None:
     # docs - unlike OpenAI's SDK, which retries transient failures by
     # default. Must be set explicitly, not just present as a kwarg.
     mocker.patch(
-        "app.core.gemini_client.get_settings",
-        return_value=Settings(
-            database_url="postgresql://u:p@host/db",
+        "app.core.gemini_client.get_gemini_settings",
+        return_value=GeminiSettings(
             gemini_api_key="test-key",
             gemini_resume_parsing_model="gemini-3.8-flash",
             gemini_jd_parsing_model="gemini-3.8-flash",
@@ -67,9 +65,8 @@ def test_get_gemini_client_enables_retries(mocker: MockerFixture) -> None:
 
 def test_get_gemini_client_is_cached(mocker: MockerFixture) -> None:
     mocker.patch(
-        "app.core.gemini_client.get_settings",
-        return_value=Settings(
-            database_url="postgresql://u:p@host/db",
+        "app.core.gemini_client.get_gemini_settings",
+        return_value=GeminiSettings(
             gemini_api_key="test-key",
             gemini_resume_parsing_model="gemini-3.8-flash",
             gemini_jd_parsing_model="gemini-3.8-flash",

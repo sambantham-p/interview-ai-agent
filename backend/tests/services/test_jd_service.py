@@ -15,7 +15,7 @@ def _mock_gemini(mocker: MockerFixture, extracted: JobDescriptionExtraction):
         new_callable=mocker.AsyncMock,
     )
     mocker.patch(
-        "app.services.jd_service.get_settings",
+        "app.services.jd_service.get_gemini_settings",
         return_value=mocker.MagicMock(gemini_jd_parsing_model="gemini-3.8-flash"),
     )
     return fake_extract_structured
@@ -155,6 +155,32 @@ async def test_parse_and_persist_job_description_raises_when_a_required_field_is
     fake_db.add = mocker.MagicMock()
 
     with pytest.raises(JobDescriptionExtractionError, match="Could not determine"):
+        await parse_and_persist_job_description(
+            full_text="A real job description with plenty of detail " * 3,
+            short_description=None,
+            db=fake_db,
+        )
+
+    fake_db.add.assert_not_called()
+
+
+async def test_parse_and_persist_job_description_rejects_an_unsupported_seniority(
+    mocker: MockerFixture,
+) -> None:
+    # Gemini's output isn't schema-constrained to SENIORITY_LEVELS - the
+    # service must reject an off-list value rather than persist it.
+    extracted = JobDescriptionExtraction(
+        extractable=True,
+        role="Backend Engineer",
+        seniority="junior",
+        tech_stack=["Python"],
+        coding_assessment_expected=True,
+    )
+    _mock_gemini(mocker, extracted)
+    fake_db = mocker.AsyncMock()
+    fake_db.add = mocker.MagicMock()
+
+    with pytest.raises(JobDescriptionExtractionError, match="not one of"):
         await parse_and_persist_job_description(
             full_text="A real job description with plenty of detail " * 3,
             short_description=None,

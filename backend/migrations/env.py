@@ -4,7 +4,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy.engine import Connection
 
-from app.core.config import get_settings
+from app.core.config import get_database_settings
 from app.core.db import get_engine, to_asyncpg_url
 from app.models import (
     Base,
@@ -39,7 +39,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = to_asyncpg_url(get_settings().database_url)
+    url = to_asyncpg_url(get_database_settings().database_url)
     context.configure(
         url=url,
         target_metadata=target_metadata,

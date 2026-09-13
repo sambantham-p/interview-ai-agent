@@ -112,15 +112,15 @@ async def test_handle_gemini_transient_error_returns_enveloped_503() -> None:
     assert "temporarily unavailable" in body["error"]["message"]
 
 
-async def test_handle_gemini_response_parse_error_returns_enveloped_422() -> None:
+async def test_handle_gemini_response_parse_error_returns_enveloped_502() -> None:
     response = await handle_gemini_response_parse_error(
         request=None, exc=GeminiResponseParseError("did not parse")
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 502
     body = json.loads(response.body)
     assert body["success"] is False
-    assert "could not process this submission" in body["error"]["message"].lower()
+    assert "unexpected response" in body["error"]["message"].lower()
 
 
 async def test_handle_job_description_extraction_error_returns_enveloped_422() -> None:
