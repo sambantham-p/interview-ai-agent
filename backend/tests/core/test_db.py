@@ -1,8 +1,8 @@
 import pytest
 from pytest_mock import MockerFixture
 
-from app.core.config import Settings
-from app.core.db import get_db, get_engine, get_session_factory, to_asyncpg_url
+from app.core.config import DatabaseSettings
+from app.core.db import get_db, get_engine, get_session_factory, ping, to_asyncpg_url
 
 
 def test_to_asyncpg_url_rewrites_postgresql_scheme() -> None:
@@ -26,10 +26,59 @@ def test_to_asyncpg_url_strips_libpq_only_query_params() -> None:
     assert to_asyncpg_url(url) == "postgresql+asyncpg://u:p@host/db"
 
 
+def test_get_engine_enables_pre_ping_and_recycle(mocker: MockerFixture) -> None:
+    # Neon can drop a pooled connection server-side (compute suspend on
+    # the free tier, or an idle timeout) independently of anything this
+    # app does - without pre_ping, the next query on that stale
+    # connection fails with asyncpg's InterfaceError: connection is
+    # closed, surfaced all the way up to the caller (confirmed live on
+    # POST /resume/upload). pre_ping catches this at checkout instead of
+    # letting it reach a query; pool_recycle proactively retires old
+    # connections as a second line of defense.
+    mocker.patch(
+        "app.core.db.get_database_settings",
+        return_value=DatabaseSettings(database_url="postgresql://u:p@host/db"),
+    )
+    fake_create_engine = mocker.patch("app.core.db.create_async_engine")
+    get_engine.cache_clear()
+
+    get_engine()
+
+    assert fake_create_engine.call_args.kwargs["pool_pre_ping"] is True
+    assert fake_create_engine.call_args.kwargs["pool_recycle"] == 300
+
+    get_engine.cache_clear()
+
+
+def test_get_engine_disables_asyncpg_statement_cache(mocker: MockerFixture) -> None:
+    # DATABASE_URL points at Neon's "-pooler" (PgBouncer transaction-mode)
+    # endpoint - the right choice for a long-running server, but
+    # transaction pooling multiplexes client transactions across
+    # different backend connections, which breaks asyncpg's default
+    # server-side prepared statement cache (DuplicatePreparedStatementError
+    # / "prepared statement does not exist" under concurrent load - a
+    # documented asyncpg+PgBouncer incompatibility). statement_cache_size=0
+    # turns that caching off.
+    mocker.patch(
+        "app.core.db.get_database_settings",
+        return_value=DatabaseSettings(database_url="postgresql://u:p@host/db"),
+    )
+    fake_create_engine = mocker.patch("app.core.db.create_async_engine")
+    get_engine.cache_clear()
+
+    get_engine()
+
+    assert (
+        fake_create_engine.call_args.kwargs["connect_args"]["statement_cache_size"] == 0
+    )
+
+    get_engine.cache_clear()
+
+
 def test_get_engine_builds_asyncpg_url_and_is_cached(mocker: MockerFixture) -> None:
     mocker.patch(
-        "app.core.db.get_settings",
-        return_value=Settings(database_url="postgresql://u:p@host/db"),
+        "app.core.db.get_database_settings",
+        return_value=DatabaseSettings(database_url="postgresql://u:p@host/db"),
     )
     get_engine.cache_clear()
 
@@ -46,8 +95,8 @@ def test_get_engine_builds_asyncpg_url_and_is_cached(mocker: MockerFixture) -> N
 
 def test_get_session_factory_is_bound_to_get_engine(mocker: MockerFixture) -> None:
     mocker.patch(
-        "app.core.db.get_settings",
-        return_value=Settings(database_url="postgresql://u:p@host/db"),
+        "app.core.db.get_database_settings",
+        return_value=DatabaseSettings(database_url="postgresql://u:p@host/db"),
     )
     get_engine.cache_clear()
 
@@ -59,6 +108,24 @@ def test_get_session_factory_is_bound_to_get_engine(mocker: MockerFixture) -> No
     assert session_factory.kw["expire_on_commit"] is False
 
     get_engine.cache_clear()
+
+
+async def test_ping_runs_select_1_against_a_real_connection(
+    mocker: MockerFixture,
+) -> None:
+    fake_conn = mocker.AsyncMock()
+    fake_conn_cm = mocker.MagicMock()
+    fake_conn_cm.__aenter__ = mocker.AsyncMock(return_value=fake_conn)
+    fake_conn_cm.__aexit__ = mocker.AsyncMock(return_value=False)
+    fake_engine = mocker.MagicMock()
+    fake_engine.connect = mocker.MagicMock(return_value=fake_conn_cm)
+    mocker.patch("app.core.db.get_engine", return_value=fake_engine)
+
+    await ping()
+
+    fake_conn.execute.assert_awaited_once()
+    (query,), _ = fake_conn.execute.call_args
+    assert str(query) == "SELECT 1"
 
 
 async def test_get_db_yields_session_and_closes_it(mocker: MockerFixture) -> None:

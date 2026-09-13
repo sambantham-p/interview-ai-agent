@@ -14,7 +14,7 @@ class JobDescription(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[str] = mapped_column(String, default=DEFAULT_USER_ID, index=True)
 
-    role_title: Mapped[str] = mapped_column(String)
+    role: Mapped[str] = mapped_column(String)
     seniority: Mapped[str] = mapped_column(String)
     tech_stack: Mapped[list] = mapped_column(JSONB, default=list)
     coding_assessment_expected: Mapped[bool] = mapped_column(Boolean, default=False)

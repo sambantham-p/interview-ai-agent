@@ -14,7 +14,7 @@ it.
 | ORM / driver | SQLAlchemy (async) + `asyncpg` |
 | Migrations | Alembic |
 | Vector search (RAG) | `pgvector` on Postgres |
-| LLM provider | OpenAI (GPT — chat, Whisper STT, `text-embedding-3-small`) |
+| LLM provider | Google Gemini (`google-genai` — chat, native audio STT) |
 | Voice TTS | ElevenLabs |
 | Resume parsing | `pypdf` |
 | Code execution (coding challenge) | Judge0 CE via RapidAPI (plain REST, no SDK) |
@@ -111,7 +111,7 @@ uv pip install --python .venv/bin/python -r requirements-dev.txt   # lint/securi
 ```
 
 Copy `.env.example` to `.env` and fill in real values before running
-anything that touches Postgres/OpenAI/ElevenLabs/Judge0/GitHub.
+anything that touches Postgres/Gemini/ElevenLabs/Judge0/GitHub.
 
 ## Database
 

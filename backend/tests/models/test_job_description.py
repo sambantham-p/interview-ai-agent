@@ -9,7 +9,7 @@ def test_table_name_and_columns() -> None:
     assert {c.name for c in columns} == {
         "id",
         "user_id",
-        "role_title",
+        "role",
         "seniority",
         "tech_stack",
         "coding_assessment_expected",
