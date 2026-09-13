@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 from pytest_mock import MockerFixture
 
 from app.core.elevenlabs_client import ElevenLabsRequestError, ElevenLabsTransientError
+from app.core.session_lookup import InterviewSessionNotFoundError
 from app.main import app
 
 
@@ -11,7 +12,7 @@ def test_text_to_speech_returns_audio_bytes_on_success(mocker: MockerFixture) ->
         new_callable=mocker.AsyncMock,
         return_value=b"fake-mp3-bytes",
     )
-    client = TestClient(app)
+    client = TestClient(app, headers={"X-Request-ID": "sam-interview-ai-agent"})
 
     response = client.post("/api/v1/voice/tts", json={"text": "Hello, candidate."})
 
@@ -28,7 +29,7 @@ def test_text_to_speech_passes_text_and_session_id_through(
         new_callable=mocker.AsyncMock,
         return_value=b"audio",
     )
-    client = TestClient(app)
+    client = TestClient(app, headers={"X-Request-ID": "sam-interview-ai-agent"})
 
     client.post(
         "/api/v1/voice/tts", json={"text": "Take a moment, no rush.", "session_id": 7}
@@ -54,12 +55,32 @@ def test_text_to_speech_returns_503_for_a_transient_elevenlabs_failure(
         side_effect=ElevenLabsTransientError("elevenlabs down"),
         new_callable=mocker.AsyncMock,
     )
-    client = TestClient(app)
+    client = TestClient(app, headers={"X-Request-ID": "sam-interview-ai-agent"})
 
     response = client.post("/api/v1/voice/tts", json={"text": "Hello"})
 
     assert response.status_code == 503
     assert response.json()["success"] is False
+
+
+def test_text_to_speech_returns_404_for_nonexistent_session_id(
+    mocker: MockerFixture,
+) -> None:
+    mocker.patch(
+        "app.routes.voice.synthesize_speech",
+        side_effect=InterviewSessionNotFoundError("No interview session with id 99999"),
+        new_callable=mocker.AsyncMock,
+    )
+    client = TestClient(app, headers={"X-Request-ID": "sam-interview-ai-agent"})
+
+    response = client.post(
+        "/api/v1/voice/tts", json={"text": "Hello", "session_id": 99999}
+    )
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["success"] is False
+    assert "99999" in body["error"]["message"]
 
 
 def test_text_to_speech_returns_elevenlabs_own_status_and_message_for_a_request_error(
@@ -77,7 +98,7 @@ def test_text_to_speech_returns_elevenlabs_own_status_and_message_for_a_request_
         ),
         new_callable=mocker.AsyncMock,
     )
-    client = TestClient(app)
+    client = TestClient(app, headers={"X-Request-ID": "sam-interview-ai-agent"})
 
     response = client.post("/api/v1/voice/tts", json={"text": "Hello"})
 

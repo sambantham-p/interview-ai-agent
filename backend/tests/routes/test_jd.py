@@ -183,7 +183,11 @@ def test_submit_jd_returns_500_for_an_unexpected_failure(
         side_effect=RuntimeError("db exploded"),
         new_callable=mocker.AsyncMock,
     )
-    client = TestClient(app, raise_server_exceptions=False)
+    client = TestClient(
+        app,
+        raise_server_exceptions=False,
+        headers={"X-Request-ID": "sam-interview-ai-agent"},
+    )
 
     response = client.post("/api/v1/jd", json={"full_text": "a real JD"})
 

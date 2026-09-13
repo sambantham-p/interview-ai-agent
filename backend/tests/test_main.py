@@ -17,7 +17,7 @@ def test_lifespan_pings_db_and_prepares_gemini_client_on_startup(
     fake_engine.dispose = mocker.AsyncMock()
     mocker.patch("app.main.get_engine", return_value=fake_engine)
 
-    with TestClient(app):
+    with TestClient(app, headers={"X-Request-ID": "sam-interview-ai-agent"}):
         pass
 
     fake_ping_db.assert_awaited_once()
@@ -39,7 +39,7 @@ def test_lifespan_startup_survives_db_and_gemini_failures(
     fake_engine.dispose = mocker.AsyncMock()
     mocker.patch("app.main.get_engine", return_value=fake_engine)
 
-    with TestClient(app) as client:
+    with TestClient(app, headers={"X-Request-ID": "sam-interview-ai-agent"}) as client:
         response = client.get("/api/v1/health")
 
     assert response.status_code == 200
@@ -57,7 +57,7 @@ def test_lifespan_closes_gemini_client_and_disposes_db_engine_on_shutdown(
     mocker.patch("app.main.get_gemini_client", return_value=fake_gemini_client)
     mocker.patch("app.main.get_engine", return_value=fake_engine)
 
-    with TestClient(app):
+    with TestClient(app, headers={"X-Request-ID": "sam-interview-ai-agent"}):
         pass
 
     # Client.close() (sync) explicitly does NOT close the async client per

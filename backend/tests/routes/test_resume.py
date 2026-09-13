@@ -202,7 +202,11 @@ def test_upload_resume_returns_500_for_an_unexpected_failure(
         side_effect=RuntimeError("db exploded"),
         new_callable=mocker.AsyncMock,
     )
-    client = TestClient(app, raise_server_exceptions=False)
+    client = TestClient(
+        app,
+        raise_server_exceptions=False,
+        headers={"X-Request-ID": "sam-interview-ai-agent"},
+    )
 
     response = client.post("/api/v1/resume/upload", files=dict([_fake_upload_file()]))
 

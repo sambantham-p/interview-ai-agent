@@ -4,6 +4,7 @@ from pytest_mock import MockerFixture
 
 from app.core.config import ElevenLabsSettings, GatewaySettings
 from app.core.llm_gateway import generate_structured, stream_text, synthesize_speech
+from app.core.session_lookup import InterviewSessionNotFoundError
 
 
 class _FakeOutput(BaseModel):
@@ -236,6 +237,27 @@ async def test_synthesize_speech_returns_audio_and_logs_character_count(
     assert logged.extra == {"character_count": len("hello there")}
     assert logged.error is None
     fake_db.commit.assert_awaited_once()
+
+
+async def test_synthesize_speech_raises_for_nonexistent_session_without_calling_elevenlabs(
+    mocker: MockerFixture,
+) -> None:
+    _mock_elevenlabs_settings(mocker)
+    fake_elevenlabs = mocker.patch(
+        "app.core.llm_gateway._synthesize_speech",
+        new_callable=mocker.AsyncMock,
+    )
+    fake_db = mocker.AsyncMock()
+    fake_db.get = mocker.AsyncMock(return_value=None)
+
+    try:
+        await synthesize_speech(text="hello", session_id=99999, db=fake_db)
+        raise AssertionError("expected InterviewSessionNotFoundError to propagate")
+    except InterviewSessionNotFoundError:
+        pass
+
+    fake_elevenlabs.assert_not_called()
+    fake_db.add.assert_not_called()
 
 
 async def test_synthesize_speech_logs_error_and_reraises(

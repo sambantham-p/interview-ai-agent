@@ -1,25 +1,64 @@
 import uuid
 
+import pytest
 import structlog.testing
 from fastapi.testclient import TestClient
 from pytest_mock import MockerFixture
 
-from app.constants.logging import REQUEST_ID_HEADER
+from app.constants.logging import REQUEST_ID_HEADER, TRACE_ID_HEADER
+from app.core.config import get_security_settings
 from app.core.request_logging import RequestLoggingMiddleware
+from app.main import app
 
 
-def test_request_gets_a_generated_uuid_request_id_header(client: TestClient) -> None:
+def test_correct_request_id_is_allowed_and_gets_a_unique_trace_id(
+    client: TestClient,
+) -> None:
+    # `client` fixture already sends the expected X-Request-ID (see
+    # tests/conftest.py) - this confirms it's let through and gets back a
+    # real, unique trace id on a separate header.
     response = client.get("/api/v1/health")
 
-    # must parse as a real UUID, not just be "present" - a fallback like
-    # str(None) would also satisfy an "in response.headers" check.
-    uuid.UUID(response.headers[REQUEST_ID_HEADER])
+    assert response.status_code == 200
+    uuid.UUID(response.headers[TRACE_ID_HEADER])
 
 
-def test_incoming_request_id_is_reused_not_replaced(client: TestClient) -> None:
-    response = client.get("/api/v1/health", headers={REQUEST_ID_HEADER: "my-trace-id"})
+def test_two_requests_get_different_trace_ids(client: TestClient) -> None:
+    first = client.get("/api/v1/health")
+    second = client.get("/api/v1/health")
 
-    assert response.headers[REQUEST_ID_HEADER] == "my-trace-id"
+    assert first.headers[TRACE_ID_HEADER] != second.headers[TRACE_ID_HEADER]
+
+
+def test_missing_request_id_is_rejected_on_a_real_endpoint() -> None:
+    bare_client = TestClient(app)
+
+    response = bare_client.post("/api/v1/voice/tts", json={"text": "hi"})
+
+    assert response.status_code == 401
+    body = response.json()
+    assert body["success"] is False
+    assert REQUEST_ID_HEADER in body["error"]["message"]
+
+
+def test_wrong_request_id_value_is_rejected_on_a_real_endpoint() -> None:
+    bare_client = TestClient(app, headers={REQUEST_ID_HEADER: "not-the-right-value"})
+
+    response = bare_client.post("/api/v1/voice/tts", json={"text": "hi"})
+
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "path", ["/api/v1/health", "/api/v1/docs", "/api/v1/redoc", "/api/v1/openapi.json"]
+)
+def test_missing_request_id_is_allowed_on_optional_paths(path: str) -> None:
+    bare_client = TestClient(app)
+
+    response = bare_client.get(path)
+
+    assert response.status_code != 401
+    uuid.UUID(response.headers[TRACE_ID_HEADER])
 
 
 def test_request_handled_is_logged_with_expected_fields(client: TestClient) -> None:
@@ -38,7 +77,7 @@ def test_request_handled_is_logged_with_expected_fields(client: TestClient) -> N
     assert entry["method"] == "GET"
     assert entry["path"] == "/api/v1/health"
     assert entry["status_code"] == 200
-    assert entry["request_id"] == response.headers[REQUEST_ID_HEADER]
+    assert entry["request_id"] == response.headers[TRACE_ID_HEADER]
     assert isinstance(entry["duration_ms"], int | float)
     assert entry["duration_ms"] >= 0
 
@@ -59,7 +98,7 @@ async def test_duration_ms_is_computed_from_actual_elapsed_time(
         "app.core.request_logging.time.perf_counter", side_effect=[100.0, 100.123456]
     )
     request = mocker.MagicMock()
-    request.headers = {}
+    request.headers = {REQUEST_ID_HEADER: get_security_settings().request_id_secret}
     request.method = "GET"
     request.url.path = "/api/v1/health"
 

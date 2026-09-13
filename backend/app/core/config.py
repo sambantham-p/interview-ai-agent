@@ -25,6 +25,17 @@ class ElevenLabsSettings(BaseSettings):
     elevenlabs_model_id: str
 
 
+class SecuritySettings(BaseSettings):
+    """The X-Request-ID gate value (see app/core/request_logging.py) -
+    kept out of source/constants since it functions as a shared secret,
+    not a trace id.
+    """
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    request_id_secret: str
+
+
 class GatewaySettings(BaseSettings):
     """Configuration for routing LLM tasks to specific models.
     Defines the model to use for each task or agent role, keeping model
@@ -61,3 +72,8 @@ def get_gateway_settings() -> GatewaySettings:
 @lru_cache
 def get_elevenlabs_settings() -> ElevenLabsSettings:
     return ElevenLabsSettings()
+
+
+@lru_cache
+def get_security_settings() -> SecuritySettings:
+    return SecuritySettings()

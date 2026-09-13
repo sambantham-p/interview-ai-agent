@@ -9,6 +9,10 @@ from app.constants.interview import (
     LLM_TASK_INTERVIEWER,
 )
 from app.core.llm_gateway import generate_structured
+from app.core.session_lookup import (
+    InterviewSessionNotFoundError,
+    get_interview_session_or_404,
+)
 from app.models.candidate_profile import CandidateProfile
 from app.models.interview_session import InterviewSession
 from app.models.job_description import JobDescription
@@ -20,6 +24,13 @@ from app.services.interview_prompts import (
     build_phase_system_instruction,
 )
 
+__all__ = [
+    "InterviewSessionNotActiveError",
+    "InterviewSessionNotFoundError",
+    "start_interview",
+    "submit_turn",
+]
+
 
 def _transcript_to_history(transcript: list[dict]) -> list[types.Content]:
     return [
@@ -30,23 +41,10 @@ def _transcript_to_history(transcript: list[dict]) -> list[types.Content]:
     ]
 
 
-class InterviewSessionNotFoundError(Exception):
-    """Raised when a session_id doesn't exist."""
-
-
 class InterviewSessionNotActiveError(Exception):
     """Raised when a turn is submitted to a session that already
     completed or ended early - no further turns are accepted.
     """
-
-
-async def _get_session(session_id: int, db: AsyncSession) -> InterviewSession:
-    session = await db.get(InterviewSession, session_id)
-    if session is None:
-        raise InterviewSessionNotFoundError(
-            f"No interview session with id {session_id}"
-        )
-    return session
 
 
 async def start_interview(
@@ -107,7 +105,7 @@ async def submit_turn(
     conversation history, apply the agent's live judgment calls (hint
     level, red flag, phase transition), persist the updated session.
     """
-    session = await _get_session(session_id, db)
+    session = await get_interview_session_or_404(session_id, db)
     if session.status != "in_progress":
         raise InterviewSessionNotActiveError(
             f"Interview session {session_id} is {session.status}, not accepting turns"

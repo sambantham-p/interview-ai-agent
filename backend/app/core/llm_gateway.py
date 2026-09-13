@@ -16,6 +16,7 @@ from app.core.gemini_client import (
     get_gemini_client,
     thinking_config_for,
 )
+from app.core.session_lookup import get_interview_session_or_404
 from app.models.llm_call import LLMCall
 
 logger = structlog.get_logger(__name__)
@@ -232,6 +233,9 @@ async def synthesize_speech(
     usage data needed to enforce the voice cost cap by summing character
     counts logged under this session_id.
     """
+    if session_id is not None:
+        await get_interview_session_or_404(session_id, db)
+
     settings = get_elevenlabs_settings()
     model = settings.elevenlabs_model_id
     start_time = time.monotonic()
