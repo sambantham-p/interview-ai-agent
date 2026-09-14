@@ -1,6 +1,6 @@
 import time
-from collections.abc import AsyncIterator
-from typing import cast
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any, cast
 
 import structlog
 from google.genai import types
@@ -14,6 +14,7 @@ from app.core.gemini_client import (
     ThinkingLevel,
     extract_structured,
     get_gemini_client,
+    run_tool_loop,
     thinking_config_for,
 )
 from app.core.session_lookup import get_interview_session_or_404
@@ -62,27 +63,26 @@ async def _log_call(
     the only place that sees which agent role is driving cost/latency,
     and the mechanism behind the per-interview voice-cost cap.
     """
-    db.add(
-        LLMCall(
-            task=task,
-            model=model,
-            session_id=session_id,
-            prompt=_truncate(prompt),
-            response=_truncate(response),
-            prompt_token_count=usage.prompt_token_count if usage else None,
-            candidates_token_count=usage.candidates_token_count if usage else None,
-            total_token_count=usage.total_token_count if usage else None,
-            latency_seconds=latency_seconds,
-            error=error,
-            extra=extra
-            if extra is not None
-            else {
-                "cached_content_token_count": (
-                    usage.cached_content_token_count if usage else None
-                )
-            },
-        )
+    call = LLMCall(
+        task=task,
+        model=model,
+        session_id=session_id,
+        prompt=_truncate(prompt),
+        response=_truncate(response),
+        prompt_token_count=usage.prompt_token_count if usage else None,
+        candidates_token_count=usage.candidates_token_count if usage else None,
+        total_token_count=usage.total_token_count if usage else None,
+        latency_seconds=latency_seconds,
+        error=error,
+        extra=extra
+        if extra is not None
+        else {
+            "cached_content_token_count": (
+                usage.cached_content_token_count if usage else None
+            )
+        },
     )
+    db.add(call)
     await db.commit()
 
 
@@ -156,6 +156,68 @@ async def generate_structured[T: BaseModel](
         error=None,
     )
     return result
+
+
+async def generate_structured_with_tools[T: BaseModel](
+    *,
+    task: str,
+    contents: list[types.Content],
+    text_format: type[T],
+    system_instruction: str,
+    thinking_level: ThinkingLevel,
+    tools: list[types.Tool],
+    tool_dispatch: dict[str, Callable[..., Awaitable[Any]]],
+    max_rounds: int,
+    session_id: int | None,
+    db: AsyncSession,
+) -> T:
+    """Same job as generate_structured(), for a turn where the model may
+    need to call tools first (currently: GitHub lookups in Phase 2). Runs
+    run_tool_loop() to let the model gather tool results, each round
+    logged to Postgres, then makes one final generate_structured() call
+    against the accumulated history for the actual structured output -
+    Gemini can't return both function calls and a response_schema payload
+    in one call, so this is genuinely two phases, not a parameter tweak.
+    """
+    model = get_gateway_settings().model_for_task(task)
+
+    async def _log_round(
+        round_number: int,
+        response: types.GenerateContentResponse,
+        latency_seconds: float,
+    ) -> None:
+        await _log_call(
+            db,
+            task=f"{task}_tool_call",
+            model=model,
+            session_id=session_id,
+            prompt=f"[tool loop round {round_number}]",
+            response=response.text or "<function call>",
+            latency_seconds=latency_seconds,
+            usage=response.usage_metadata,
+            error=None,
+        )
+
+    history = await run_tool_loop(
+        model=model,
+        contents=contents,
+        system_instruction=system_instruction,
+        tools=tools,
+        tool_dispatch=tool_dispatch,
+        thinking_level=thinking_level,
+        max_rounds=max_rounds,
+        on_round=_log_round,
+    )
+
+    return await generate_structured(
+        task=task,
+        contents=history,
+        text_format=text_format,
+        system_instruction=system_instruction,
+        thinking_level=thinking_level,
+        session_id=session_id,
+        db=db,
+    )
 
 
 async def stream_text(

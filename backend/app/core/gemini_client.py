@@ -1,7 +1,7 @@
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from functools import lru_cache
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import httpx
 import structlog
@@ -53,6 +53,17 @@ _THINKING_LEVELS: dict[ThinkingLevel, types.ThinkingLevel] = {
     "medium": types.ThinkingLevel.MEDIUM,
     "high": types.ThinkingLevel.HIGH,
 }
+
+
+def _is_transient(exc: Exception) -> bool:
+    """A retryable Gemini-side failure - network error, 5xx, or a 429 rate
+    limit. Shared by extract_structured() and run_tool_loop() so both
+    classify errors the same way.
+    """
+    is_rate_limited = (
+        isinstance(exc, ClientError) and exc.code == GEMINI_RATE_LIMIT_STATUS_CODE
+    )
+    return isinstance(exc, httpx.HTTPError | ServerError) or is_rate_limited
 
 
 def thinking_config_for(thinking_level: ThinkingLevel) -> types.ThinkingConfig:
@@ -142,10 +153,7 @@ async def extract_structured[T: BaseModel](
         )
         if on_usage is not None:
             on_usage(None)
-        is_rate_limited = (
-            isinstance(exc, ClientError) and exc.code == GEMINI_RATE_LIMIT_STATUS_CODE
-        )
-        if isinstance(exc, httpx.HTTPError | ServerError) or is_rate_limited:
+        if _is_transient(exc):
             raise GeminiTransientError(str(exc)) from exc
         raise
 
@@ -175,6 +183,93 @@ async def extract_structured[T: BaseModel](
         total_token_count=usage.total_token_count if usage else None,
     )
     return parsed
+
+
+async def run_tool_loop(
+    *,
+    model: str,
+    contents: list[types.Content],
+    system_instruction: str,
+    tools: list[types.Tool],
+    tool_dispatch: dict[str, Callable[..., Awaitable[Any]]],
+    thinking_level: ThinkingLevel,
+    max_rounds: int,
+    on_round: Callable[[int, types.GenerateContentResponse, float], Awaitable[None]]
+    | None = None,
+) -> list[types.Content]:
+    """Run a bounded Gemini tool-calling loop.
+
+    Sends the conversation to Gemini with the available tools, executes
+    requested tool calls via `tool_dispatch`, feeds results back, and repeats
+    until no more tool calls are requested or `max_rounds` is reached.
+
+    Returns the accumulated history for the caller's final structured call.
+    Tool errors are returned to Gemini; Gemini API errors propagate, with
+    transient errors wrapped as `GeminiTransientError`.
+    Calls `on_round` after each Gemini call to log the round.
+    """
+    client = get_gemini_client()
+    history = list(contents)
+    log = logger.bind(model=model)
+
+    for round_number in range(max_rounds):
+        round_start = time.monotonic()
+        try:
+            response = await client.aio.models.generate_content(
+                model=model,
+                contents=cast(types.ContentListUnion, history),
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    tools=tools,
+                    thinking_config=thinking_config_for(thinking_level),
+                ),
+            )
+        except Exception as exc:
+            log.exception("gemini.tool_loop.error", round=round_number)
+            if _is_transient(exc):
+                raise GeminiTransientError(str(exc)) from exc
+            raise
+
+        if on_round is not None:
+            await on_round(round_number, response, time.monotonic() - round_start)
+
+        candidate_content = response.candidates[0].content
+        function_calls = [
+            part.function_call
+            for part in (candidate_content.parts or [])
+            if part.function_call is not None
+        ]
+        if not function_calls:
+            log.info("gemini.tool_loop.no_more_calls", round=round_number)
+            break
+
+        history.append(candidate_content)
+        response_parts = []
+        for call in function_calls:
+            args = call.args or {}
+            log.info("gemini.tool_loop.calling", tool=call.name, round=round_number)
+            try:
+                tool_fn = tool_dispatch[call.name]
+                result = await tool_fn(**args)
+                result_payload = {"result": result}
+            except Exception as exc:  # noqa: BLE001 - a tool failure must never crash the turn
+                log.warning(
+                    "gemini.tool_loop.tool_error",
+                    tool=call.name,
+                    round=round_number,
+                    error=str(exc),
+                )
+                result_payload = {"error": str(exc)}
+            response_parts.append(
+                types.Part.from_function_response(
+                    name=call.name, response=result_payload
+                )
+            )
+        history.append(types.Content(role="user", parts=response_parts))
+    else:
+        log.warning("gemini.tool_loop.max_rounds_reached", max_rounds=max_rounds)
+
+    return history
 
 
 class FileInputRequest(BaseModel):

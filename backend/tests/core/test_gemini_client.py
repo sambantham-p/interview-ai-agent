@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -16,6 +17,7 @@ from app.core.gemini_client import (
     build_file_input,
     extract_structured,
     get_gemini_client,
+    run_tool_loop,
 )
 
 
@@ -423,3 +425,189 @@ async def test_extract_structured_requires_system_instruction_to_be_specified(
             text_format=_FakeExtraction,
             thinking_level="high",
         )
+
+
+def _content_with_text(text: str) -> types.Content:
+    return types.Content(role="model", parts=[types.Part.from_text(text=text)])
+
+
+def _content_with_function_call(name: str, args: dict) -> types.Content:
+    return types.Content(
+        role="model",
+        parts=[types.Part(function_call=types.FunctionCall(name=name, args=args))],
+    )
+
+
+def _response_with_content(content: types.Content) -> MagicMock:
+    candidate = MagicMock()
+    candidate.content = content
+    response = MagicMock()
+    response.candidates = [candidate]
+    return response
+
+
+async def test_run_tool_loop_returns_history_unchanged_when_no_function_calls(
+    mocker: MockerFixture,
+) -> None:
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(
+        return_value=_response_with_content(_content_with_text("no tools needed"))
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+    original_history = [
+        types.Content(role="user", parts=[types.Part.from_text(text="hi")])
+    ]
+
+    result = await run_tool_loop(
+        model="gemini-3.8-flash",
+        contents=list(original_history),
+        system_instruction="You have tools.",
+        tools=[],
+        tool_dispatch={},
+        thinking_level="medium",
+        max_rounds=4,
+    )
+
+    assert result == original_history
+    fake_client.aio.models.generate_content.assert_awaited_once()
+
+
+async def test_run_tool_loop_executes_tool_and_feeds_result_back(
+    mocker: MockerFixture,
+) -> None:
+    fake_client = mocker.MagicMock()
+    fake_tool = mocker.AsyncMock(return_value={"repos": ["a", "b"]})
+    fake_client.aio.models.generate_content = mocker.AsyncMock(
+        side_effect=[
+            _response_with_content(
+                _content_with_function_call("list_repos", {"username": "octocat"})
+            ),
+            _response_with_content(_content_with_text("done")),
+        ]
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    result = await run_tool_loop(
+        model="gemini-3.8-flash",
+        contents=[types.Content(role="user", parts=[types.Part.from_text(text="hi")])],
+        system_instruction="You have tools.",
+        tools=[],
+        tool_dispatch={"list_repos": fake_tool},
+        thinking_level="medium",
+        max_rounds=4,
+    )
+
+    fake_tool.assert_awaited_once_with(username="octocat")
+    assert fake_client.aio.models.generate_content.await_count == 2
+    # original + model's function-call turn + the function-response turn
+    assert len(result) == 3
+    function_response_part = result[-1].parts[0]
+    assert function_response_part.function_response.name == "list_repos"
+    assert function_response_part.function_response.response == {
+        "result": {"repos": ["a", "b"]}
+    }
+
+
+async def test_run_tool_loop_feeds_error_back_instead_of_raising(
+    mocker: MockerFixture,
+) -> None:
+    fake_client = mocker.MagicMock()
+    fake_tool = mocker.AsyncMock(side_effect=RuntimeError("repo not found"))
+    fake_client.aio.models.generate_content = mocker.AsyncMock(
+        side_effect=[
+            _response_with_content(
+                _content_with_function_call("list_repos", {"username": "octocat"})
+            ),
+            _response_with_content(_content_with_text("done")),
+        ]
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    result = await run_tool_loop(
+        model="gemini-3.8-flash",
+        contents=[types.Content(role="user", parts=[types.Part.from_text(text="hi")])],
+        system_instruction="You have tools.",
+        tools=[],
+        tool_dispatch={"list_repos": fake_tool},
+        thinking_level="medium",
+        max_rounds=4,
+    )
+
+    function_response_part = result[-1].parts[0]
+    assert function_response_part.function_response.response == {
+        "error": "repo not found"
+    }
+
+
+async def test_run_tool_loop_stops_at_max_rounds_without_raising(
+    mocker: MockerFixture,
+) -> None:
+    fake_client = mocker.MagicMock()
+    fake_tool = mocker.AsyncMock(return_value="x")
+    fake_client.aio.models.generate_content = mocker.AsyncMock(
+        return_value=_response_with_content(
+            _content_with_function_call("list_repos", {"username": "octocat"})
+        )
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    result = await run_tool_loop(
+        model="gemini-3.8-flash",
+        contents=[types.Content(role="user", parts=[types.Part.from_text(text="hi")])],
+        system_instruction="You have tools.",
+        tools=[],
+        tool_dispatch={"list_repos": fake_tool},
+        thinking_level="medium",
+        max_rounds=2,
+    )
+
+    assert fake_client.aio.models.generate_content.await_count == 2
+    # original + 2 rounds of (model call + function response)
+    assert len(result) == 1 + 2 * 2
+
+
+async def test_run_tool_loop_wraps_transient_generate_content_failures(
+    mocker: MockerFixture,
+) -> None:
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(
+        side_effect=ServerError(500, {"error": {"message": "gemini blew up"}})
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    with pytest.raises(GeminiTransientError, match="gemini blew up"):
+        await run_tool_loop(
+            model="gemini-3.8-flash",
+            contents=[
+                types.Content(role="user", parts=[types.Part.from_text(text="hi")])
+            ],
+            system_instruction="You have tools.",
+            tools=[],
+            tool_dispatch={},
+            thinking_level="medium",
+            max_rounds=4,
+        )
+
+
+async def test_run_tool_loop_does_not_wrap_non_transient_failures(
+    mocker: MockerFixture,
+) -> None:
+    original = ClientError(400, {"error": {"message": "bad request"}})
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(side_effect=original)
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    with pytest.raises(ClientError) as exc_info:
+        await run_tool_loop(
+            model="gemini-3.8-flash",
+            contents=[
+                types.Content(role="user", parts=[types.Part.from_text(text="hi")])
+            ],
+            system_instruction="You have tools.",
+            tools=[],
+            tool_dispatch={},
+            thinking_level="medium",
+            max_rounds=4,
+        )
+
+    assert exc_info.value is original

@@ -4,7 +4,13 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
+from app.constants.github import (
+    GITHUB_CALL_BUDGET_PER_SESSION,
+    GITHUB_TOOL_LOOP_MAX_ROUNDS,
+)
 from app.constants.interview import DEFAULT_RED_FLAG_THRESHOLD, INTERVIEW_PHASES
+from app.core.github_tools import GITHUB_TOOL_DISPATCH, GITHUB_TOOLS
+from app.core.search_mcp_client import SearchTransientError
 from app.models.candidate_profile import CandidateProfile
 from app.models.interview_session import InterviewSession
 from app.models.job_description import JobDescription
@@ -28,14 +34,17 @@ def _fake_candidate_profile() -> CandidateProfile:
     )
 
 
-def _fake_job_description() -> JobDescription:
-    return JobDescription(
-        id=2,
-        role="Backend Engineer",
-        seniority="senior",
-        tech_stack=["Python"],
-        coding_assessment_expected=True,
-    )
+def _fake_job_description(**overrides) -> JobDescription:
+    defaults = {
+        "id": 2,
+        "role": "Backend Engineer",
+        "company_name": None,
+        "seniority": "senior",
+        "tech_stack": ["Python"],
+        "coding_assessment_expected": True,
+    }
+    defaults.update(overrides)
+    return JobDescription(**defaults)
 
 
 def _fake_session(**overrides) -> InterviewSession:
@@ -49,6 +58,9 @@ def _fake_session(**overrides) -> InterviewSession:
         "red_flag_count": 0,
         "red_flag_warning_issued": False,
         "hint_counts": {},
+        "question_pool": [],
+        "asked_question_ids": {},
+        "github_call_count": 0,
     }
     defaults.update(overrides)
     return InterviewSession(**defaults)
@@ -83,6 +95,11 @@ async def test_start_interview_creates_session_and_opening_reply(
         raise AssertionError(f"unexpected model {model}")
 
     fake_db = _mock_db(mocker, get_side_effect=get_side_effect)
+    mocker.patch(
+        "app.services.interview_service.prefetch_question_pool",
+        new_callable=mocker.AsyncMock,
+        return_value=[],
+    )
     _mock_generate_structured(
         mocker,
         InterviewTurnOutput(
@@ -101,7 +118,135 @@ async def test_start_interview_creates_session_and_opening_reply(
     assert (
         session.transcript[-1]["text"] == "Welcome! Let's start with your background."
     )
+    assert session.question_pool == []
     fake_db.commit.assert_awaited_once()
+
+
+async def test_start_interview_prefetches_company_research_when_company_name_set(
+    mocker: MockerFixture,
+) -> None:
+    candidate_profile = _fake_candidate_profile()
+    job_description = _fake_job_description(company_name="Acme Corp")
+
+    async def get_side_effect(model, _id):
+        if model is CandidateProfile:
+            return candidate_profile
+        if model is JobDescription:
+            return job_description
+        raise AssertionError(f"unexpected model {model}")
+
+    fake_db = _mock_db(mocker, get_side_effect=get_side_effect)
+    mocker.patch(
+        "app.services.interview_service.prefetch_question_pool",
+        new_callable=mocker.AsyncMock,
+        return_value=[],
+    )
+    fake_search = mocker.patch(
+        "app.services.interview_service.search_company_context",
+        new_callable=mocker.AsyncMock,
+        return_value="Acme makes widgets.",
+    )
+    _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Welcome!",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        ),
+    )
+
+    session = await start_interview(
+        candidate_profile_id=1, job_description_id=2, db=fake_db
+    )
+
+    assert session.company_research == "Acme makes widgets."
+    fake_search.assert_awaited_once_with(
+        company_name="Acme Corp", role="Backend Engineer"
+    )
+
+
+async def test_start_interview_skips_company_research_when_no_company_name(
+    mocker: MockerFixture,
+) -> None:
+    candidate_profile = _fake_candidate_profile()
+    job_description = _fake_job_description()
+
+    async def get_side_effect(model, _id):
+        if model is CandidateProfile:
+            return candidate_profile
+        if model is JobDescription:
+            return job_description
+        raise AssertionError(f"unexpected model {model}")
+
+    fake_db = _mock_db(mocker, get_side_effect=get_side_effect)
+    mocker.patch(
+        "app.services.interview_service.prefetch_question_pool",
+        new_callable=mocker.AsyncMock,
+        return_value=[],
+    )
+    fake_search = mocker.patch(
+        "app.services.interview_service.search_company_context",
+        new_callable=mocker.AsyncMock,
+    )
+    _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Welcome!",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        ),
+    )
+
+    session = await start_interview(
+        candidate_profile_id=1, job_description_id=2, db=fake_db
+    )
+
+    assert session.company_research is None
+    fake_search.assert_not_awaited()
+
+
+async def test_start_interview_continues_when_company_research_fails(
+    mocker: MockerFixture,
+) -> None:
+    candidate_profile = _fake_candidate_profile()
+    job_description = _fake_job_description(company_name="Acme Corp")
+
+    async def get_side_effect(model, _id):
+        if model is CandidateProfile:
+            return candidate_profile
+        if model is JobDescription:
+            return job_description
+        raise AssertionError(f"unexpected model {model}")
+
+    fake_db = _mock_db(mocker, get_side_effect=get_side_effect)
+    mocker.patch(
+        "app.services.interview_service.prefetch_question_pool",
+        new_callable=mocker.AsyncMock,
+        return_value=[],
+    )
+    mocker.patch(
+        "app.services.interview_service.search_company_context",
+        new_callable=mocker.AsyncMock,
+        side_effect=SearchTransientError("mcp connection failed"),
+    )
+    _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Welcome!",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        ),
+    )
+
+    session = await start_interview(
+        candidate_profile_id=1, job_description_id=2, db=fake_db
+    )
+
+    assert session.company_research is None
+    assert session.current_phase == INTERVIEW_PHASES[0]
 
 
 async def test_start_interview_raises_when_candidate_profile_missing(
@@ -149,8 +294,9 @@ async def _db_for_turn(
     session: InterviewSession,
     *,
     job_description: JobDescription | None = None,
+    candidate_profile: CandidateProfile | None = None,
 ):
-    candidate_profile = _fake_candidate_profile()
+    candidate_profile = candidate_profile or _fake_candidate_profile()
     job_description = job_description or _fake_job_description()
 
     async def get_side_effect(model, _id):
@@ -163,6 +309,304 @@ async def _db_for_turn(
         raise AssertionError(f"unexpected model {model}")
 
     return _mock_db(mocker, get_side_effect=get_side_effect)
+
+
+async def test_submit_turn_passes_unasked_pool_questions_and_marks_them_asked(
+    mocker: MockerFixture,
+) -> None:
+    session = _fake_session(
+        current_phase="technical_interview",
+        question_pool=[
+            {"id": 1, "question_text": "What is ACID?", "topic": "DBMS"},
+            {"id": 2, "question_text": "Explain the GIL.", "topic": "Python"},
+        ],
+        asked_question_ids={},
+    )
+    fake_db = await _db_for_turn(mocker, session)
+    fake_generate = _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Next question.",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        ),
+    )
+
+    updated = await submit_turn(session_id=10, message="answer", db=fake_db)
+
+    system_instruction = fake_generate.call_args.kwargs["system_instruction"]
+    assert "What is ACID?" in system_instruction
+    assert "Explain the GIL." in system_instruction
+    assert updated.asked_question_ids == {"technical_interview": [1, 2]}
+
+
+async def test_submit_turn_never_reoffers_a_question_used_in_an_earlier_phase(
+    mocker: MockerFixture,
+) -> None:
+    session = _fake_session(
+        current_phase="general_technical",
+        question_pool=[
+            {"id": 1, "question_text": "What is ACID?", "topic": "DBMS"},
+            {"id": 2, "question_text": "Explain the GIL.", "topic": "Python"},
+        ],
+        asked_question_ids={"technical_interview": [1]},
+    )
+    fake_db = await _db_for_turn(mocker, session)
+    fake_generate = _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Next question.",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        ),
+    )
+
+    updated = await submit_turn(session_id=10, message="answer", db=fake_db)
+
+    system_instruction = fake_generate.call_args.kwargs["system_instruction"]
+    assert "What is ACID?" not in system_instruction
+    assert "Explain the GIL." in system_instruction
+    assert updated.asked_question_ids == {
+        "technical_interview": [1],
+        "general_technical": [2],
+    }
+
+
+async def test_submit_turn_injects_company_research_in_career_motivation_phase(
+    mocker: MockerFixture,
+) -> None:
+    session = _fake_session(
+        current_phase="career_motivation",
+        company_research="Acme Corp recently launched a new product line.",
+    )
+    fake_db = await _db_for_turn(mocker, session)
+    fake_generate = _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Why this role?",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        ),
+    )
+
+    await submit_turn(session_id=10, message="answer", db=fake_db)
+
+    system_instruction = fake_generate.call_args.kwargs["system_instruction"]
+    assert "Acme Corp recently launched a new product line." in system_instruction
+
+
+async def test_submit_turn_omits_company_research_outside_those_phases(
+    mocker: MockerFixture,
+) -> None:
+    session = _fake_session(
+        current_phase="technical_interview",
+        company_research="Acme Corp recently launched a new product line.",
+    )
+    fake_db = await _db_for_turn(mocker, session)
+    fake_generate = _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Next question.",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        ),
+    )
+
+    await submit_turn(session_id=10, message="answer", db=fake_db)
+
+    system_instruction = fake_generate.call_args.kwargs["system_instruction"]
+    assert "Acme Corp recently launched a new product line." not in system_instruction
+
+
+async def test_submit_turn_reuses_the_same_batch_across_turns_in_one_phase(
+    mocker: MockerFixture,
+) -> None:
+    # The bug this guards against: re-selecting a fresh batch every turn
+    # (instead of once per phase) burns through the whole pool well
+    # before the interview reaches its later phases - found via a live
+    # end-to-end run, not a hypothetical.
+    session = _fake_session(
+        current_phase="technical_interview",
+        question_pool=[
+            {"id": 1, "question_text": "What is ACID?", "topic": "DBMS"},
+            {"id": 2, "question_text": "Explain the GIL.", "topic": "Python"},
+            {"id": 3, "question_text": "What is a closure?", "topic": "JavaScript"},
+        ],
+        asked_question_ids={},
+    )
+    fake_db = await _db_for_turn(mocker, session)
+    _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="First question.",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        ),
+    )
+
+    first = await submit_turn(session_id=10, message="answer one", db=fake_db)
+    assert first.asked_question_ids == {"technical_interview": [1, 2, 3]}
+
+    second = await submit_turn(session_id=10, message="answer two", db=fake_db)
+    assert second.asked_question_ids == {"technical_interview": [1, 2, 3]}
+
+
+async def test_submit_turn_uses_github_tools_when_phase_is_project_drill_down_and_url_set(
+    mocker: MockerFixture,
+) -> None:
+    session = _fake_session(current_phase="project_drill_down")
+    candidate_profile = _fake_candidate_profile()
+    candidate_profile.github_url = "https://github.com/octocat"
+    fake_db = await _db_for_turn(mocker, session, candidate_profile=candidate_profile)
+    fake_generate_with_tools = mocker.patch(
+        "app.services.interview_service.generate_structured_with_tools",
+        new_callable=mocker.AsyncMock,
+        return_value=InterviewTurnOutput(
+            reply="Tell me about your project.",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        ),
+    )
+    fake_generate_plain = _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="unused", phase_complete=False, red_flag=False, anxiety_detected=False
+        ),
+    )
+
+    await submit_turn(session_id=10, message="It's a FastAPI app", db=fake_db)
+
+    fake_generate_with_tools.assert_awaited_once()
+    fake_generate_plain.assert_not_awaited()
+    call_kwargs = fake_generate_with_tools.call_args.kwargs
+    assert call_kwargs["max_rounds"] == GITHUB_TOOL_LOOP_MAX_ROUNDS
+    assert call_kwargs["tools"] == GITHUB_TOOLS
+    # tool_dispatch is wrapped for call counting (see
+    # GITHUB_CALL_BUDGET_PER_SESSION) - same tool names, different
+    # (wrapped) callables, so compare keys rather than dict equality.
+    assert set(call_kwargs["tool_dispatch"].keys()) == set(GITHUB_TOOL_DISPATCH.keys())
+
+
+async def test_submit_turn_skips_github_tools_once_budget_is_exhausted(
+    mocker: MockerFixture,
+) -> None:
+    session = _fake_session(
+        current_phase="project_drill_down",
+        github_call_count=GITHUB_CALL_BUDGET_PER_SESSION,
+    )
+    candidate_profile = _fake_candidate_profile()
+    candidate_profile.github_url = "https://github.com/octocat"
+    fake_db = await _db_for_turn(mocker, session, candidate_profile=candidate_profile)
+    fake_generate_with_tools = mocker.patch(
+        "app.services.interview_service.generate_structured_with_tools",
+        new_callable=mocker.AsyncMock,
+    )
+    fake_generate_plain = _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Let's continue.",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        ),
+    )
+
+    await submit_turn(session_id=10, message="tell me more", db=fake_db)
+
+    fake_generate_plain.assert_awaited_once()
+    fake_generate_with_tools.assert_not_awaited()
+
+
+async def test_submit_turn_adds_actual_github_calls_made_to_the_session_counter(
+    mocker: MockerFixture,
+) -> None:
+    session = _fake_session(current_phase="project_drill_down", github_call_count=3)
+    candidate_profile = _fake_candidate_profile()
+    candidate_profile.github_url = "https://github.com/octocat"
+    fake_db = await _db_for_turn(mocker, session, candidate_profile=candidate_profile)
+
+    async def fake_generate_with_tools(**kwargs):
+        # Simulate the tool loop making 2 real GitHub calls this turn.
+        dispatch = kwargs["tool_dispatch"]
+        await dispatch["list_repos"](username="octocat")
+        await dispatch["list_repo_files"](owner="octocat", repo="hello-world")
+        return InterviewTurnOutput(
+            reply="Found it.",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        )
+
+    mocker.patch(
+        "app.services.interview_service.generate_structured_with_tools",
+        side_effect=fake_generate_with_tools,
+    )
+    mocker.patch("app.core.github_client.list_repos", new_callable=mocker.AsyncMock)
+    mocker.patch(
+        "app.core.github_client.list_repo_files", new_callable=mocker.AsyncMock
+    )
+
+    updated = await submit_turn(session_id=10, message="show me the repo", db=fake_db)
+
+    assert updated.github_call_count == 5  # 3 already + 2 made this turn
+
+
+async def test_submit_turn_skips_github_tools_when_no_github_url(
+    mocker: MockerFixture,
+) -> None:
+    session = _fake_session(current_phase="project_drill_down")
+    fake_db = await _db_for_turn(mocker, session)  # default profile: github_url=None
+    fake_generate_with_tools = mocker.patch(
+        "app.services.interview_service.generate_structured_with_tools",
+        new_callable=mocker.AsyncMock,
+    )
+    fake_generate_plain = _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Tell me more.",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        ),
+    )
+
+    await submit_turn(session_id=10, message="It's a FastAPI app", db=fake_db)
+
+    fake_generate_plain.assert_awaited_once()
+    fake_generate_with_tools.assert_not_awaited()
+
+
+async def test_submit_turn_skips_github_tools_outside_project_drill_down_phase(
+    mocker: MockerFixture,
+) -> None:
+    session = _fake_session(current_phase="technical_interview")
+    candidate_profile = _fake_candidate_profile()
+    candidate_profile.github_url = "https://github.com/octocat"
+    fake_db = await _db_for_turn(mocker, session, candidate_profile=candidate_profile)
+    fake_generate_with_tools = mocker.patch(
+        "app.services.interview_service.generate_structured_with_tools",
+        new_callable=mocker.AsyncMock,
+    )
+    fake_generate_plain = _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Next topic.",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        ),
+    )
+
+    await submit_turn(session_id=10, message="answer", db=fake_db)
+
+    fake_generate_plain.assert_awaited_once()
+    fake_generate_with_tools.assert_not_awaited()
 
 
 async def test_submit_turn_advances_to_next_phase_when_complete(

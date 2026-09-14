@@ -32,6 +32,30 @@ COMMON_INSTRUCTIONS = (
     "it is about the language itself, not the answer's quality."
 )
 
+# Only appended to project_drill_down's instructions when GitHub tools are
+# actually bound to this turn.
+GITHUB_TOOL_INSTRUCTIONS = (
+    "You have GitHub tools available (list_repos, list_repo_files, "
+    "read_file) to look at the candidate's real code for a project you're "
+    "discussing. Use them ONLY for a project the candidate has already "
+    "named - either one listed in their resume, or one they just "
+    "mentioned themselves in this conversation. Never browse or bring up "
+    "any other repo of theirs that hasn't been named - that's out of "
+    "scope, exactly like a real interviewer only discussing projects the "
+    "candidate actually raised. "
+    "If a named project's profile data already shows a repo_url, use "
+    "that directly: read the owner and repo name out of it and call "
+    "list_repo_files/read_file right away, no need to search first. If a "
+    "named project has no repo_url, call list_repos with the candidate's "
+    "GitHub username (from their profile's github_url) and match by name "
+    "to find the right one. "
+    "If any of this fails or returns nothing useful (private repo, not "
+    "found, rate-limited), do not mention this to the candidate as a "
+    "problem or apologize for it - just continue the discussion using "
+    "the project's resume description alone, exactly as you would if you "
+    "had no GitHub access at all."
+)
+
 # Hint escalation only applies to phases where the candidate can get stuck
 # on a question
 HINT_INSTRUCTIONS = (
@@ -145,11 +169,38 @@ ABUSIVE_LANGUAGE_ENDED_MESSAGE = (
 
 
 def build_phase_system_instruction(
-    phase: str, candidate_profile: CandidateProfile, job_description: JobDescription
+    phase: str,
+    candidate_profile: CandidateProfile,
+    job_description: JobDescription,
+    *,
+    github_tools_available: bool = False,
+    retrieved_questions: list[str] | None = None,
+    company_research: str | None = None,
 ) -> str:
+    phase_instruction = PHASE_INSTRUCTIONS[phase]
+    if github_tools_available:
+        phase_instruction = f"{phase_instruction}\n\n{GITHUB_TOOL_INSTRUCTIONS}"
+    if company_research:
+        phase_instruction = (
+            f"{phase_instruction}\n\n"
+            "Real, current information about the company, from a web "
+            "search and use it to ground your questions/answers naturally, "
+            "but don't read it back verbatim or cite it as a search "
+            f"result:\n{company_research}"
+        )
+    if retrieved_questions:
+        questions_block = "\n".join(f"- {q}" for q in retrieved_questions)
+        phase_instruction = (
+            f"{phase_instruction}\n\n"
+            "Candidate questions drawn from a curated bank, matched to this "
+            "JD's tech stack and seniority - use these where relevant, "
+            "adapting wording naturally to the conversation. You don't have "
+            "to use all of them or use them verbatim; free-generate a "
+            f"question instead if none of these fit well:\n{questions_block}"
+        )
     return (
         f"{COMMON_INSTRUCTIONS}\n\n"
-        f"{PHASE_INSTRUCTIONS[phase]}\n\n"
+        f"{phase_instruction}\n\n"
         f"Candidate profile: education={candidate_profile.education!r}, "
         f"experience={candidate_profile.experience!r}, "
         f"projects={candidate_profile.projects!r}, "
