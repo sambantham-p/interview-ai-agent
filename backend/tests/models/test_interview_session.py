@@ -19,6 +19,10 @@ def test_table_name_and_columns() -> None:
         "red_flag_warning_issued",
         "hint_counts",
         "end_reason",
+        "question_pool",
+        "asked_question_ids",
+        "github_call_count",
+        "company_research",
         "created_at",
         "ended_at",
     }

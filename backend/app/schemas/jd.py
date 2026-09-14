@@ -39,6 +39,12 @@ class JobDescriptionExtraction(BaseModel):
             "should be normalized to 'Backend Engineer'."
         ),
     )
+    company_name: str | None = Field(
+        default=None,
+        description=(
+            "The hiring company's name, if named in the text. None if not stated ."
+        ),
+    )
     seniority: str | None = Field(
         default=None,
         description=f"One of: {', '.join(SENIORITY_LEVELS)}.",
@@ -56,6 +62,7 @@ class JobDescriptionResponse(BaseModel):
 
     id: int
     role: str
+    company_name: str | None
     seniority: str
     tech_stack: list[str]
     coding_assessment_expected: bool

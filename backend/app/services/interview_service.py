@@ -1,14 +1,25 @@
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import Any
 
+import structlog
 from google.genai import types
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants.github import (
+    GITHUB_CALL_BUDGET_PER_SESSION,
+    GITHUB_TOOL_LOOP_MAX_ROUNDS,
+)
 from app.constants.interview import (
     DEFAULT_RED_FLAG_THRESHOLD,
     INTERVIEW_PHASES,
     LLM_TASK_INTERVIEWER,
 )
-from app.core.llm_gateway import generate_structured
+from app.constants.question_bank import QUESTION_BANK_PHASES, QUESTIONS_PER_PHASE
+from app.constants.search import COMPANY_RESEARCH_PHASES
+from app.core.github_tools import GITHUB_TOOL_DISPATCH, GITHUB_TOOLS
+from app.core.llm_gateway import generate_structured, generate_structured_with_tools
+from app.core.search_mcp_client import SearchTransientError, search_company_context
 from app.core.session_lookup import (
     InterviewSessionNotFoundError,
     get_interview_session_or_404,
@@ -23,6 +34,9 @@ from app.services.interview_prompts import (
     RED_FLAG_WARNING_MESSAGE,
     build_phase_system_instruction,
 )
+from app.services.question_bank_service import prefetch_question_pool
+
+logger = structlog.get_logger(__name__)
 
 __all__ = [
     "InterviewSessionNotActiveError",
@@ -45,6 +59,53 @@ class InterviewSessionNotActiveError(Exception):
     """Raised when a turn is submitted to a session that already
     completed or ended early - no further turns are accepted.
     """
+
+
+def _questions_for_phase(session: InterviewSession) -> list[str]:
+    """Selects up to QUESTIONS_PER_PHASE pool entries for the current
+    phase, deduped across phases 3/4/5 sharing one pool.
+
+    Selected once per phase, not once per turn: a phase already holding a
+    batch (asked_question_ids[phase]) reoffers that same batch on every
+    later turn instead of picking fresh ones, or a multi-turn phase would
+    burn through the whole pool before reaching the next phase.
+    """
+    phase = session.current_phase
+    asked_by_phase = dict(session.asked_question_ids)
+
+    if phase in asked_by_phase:
+        already_offered_ids = set(asked_by_phase[phase])
+        return [
+            q["question_text"]
+            for q in session.question_pool
+            if q["id"] in already_offered_ids
+        ]
+
+    used_elsewhere = {qid for ids in asked_by_phase.values() for qid in ids}
+    unused = [q for q in session.question_pool if q["id"] not in used_elsewhere]
+    selected = unused[:QUESTIONS_PER_PHASE]
+    if selected:
+        asked_by_phase[phase] = [q["id"] for q in selected]
+        session.asked_question_ids = asked_by_phase
+    return [q["question_text"] for q in selected]
+
+
+def _counting_dispatch(
+    dispatch: dict[str, Callable[..., Awaitable[Any]]], counter: list[int]
+) -> dict[str, Callable[..., Awaitable[Any]]]:
+    """Wraps a tool_dispatch table so every call increments `counter[0]` -
+    lets submit_turn() count actual GitHub calls made this turn, to add
+    onto session.github_call_count afterwards.
+    """
+
+    def _wrap(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+        async def wrapped(**kwargs: Any) -> Any:
+            counter[0] += 1
+            return await fn(**kwargs)
+
+        return wrapped
+
+    return {name: _wrap(fn) for name, fn in dispatch.items()}
 
 
 async def start_interview(
@@ -74,6 +135,24 @@ async def start_interview(
     )
     db.add(session)
     await db.flush()
+
+    session.question_pool = await prefetch_question_pool(
+        job_description=job_description, db=db
+    )
+
+    # Prefetch once; reuse later instead of searching mid-turn.
+    # Missing company_name skips research, and search failure must not block interview start.
+    if job_description.company_name:
+        try:
+            session.company_research = await search_company_context(
+                company_name=job_description.company_name,
+                role=job_description.role,
+            )
+        except SearchTransientError:
+            logger.warning(
+                "interview.company_research.unavailable",
+                company_name=job_description.company_name,
+            )
 
     system_instruction = build_phase_system_instruction(
         session.current_phase, candidate_profile, job_description
@@ -118,19 +197,55 @@ async def submit_turn(
 
     transcript = [*session.transcript, {"role": "user", "text": message}]
     history = _transcript_to_history(transcript)
+    github_tools_available = (
+        session.current_phase == "project_drill_down"
+        and bool(candidate_profile.github_url)
+        and session.github_call_count < GITHUB_CALL_BUDGET_PER_SESSION
+    )
+    retrieved_questions = (
+        _questions_for_phase(session)
+        if session.current_phase in QUESTION_BANK_PHASES
+        else None
+    )
+    company_research = (
+        session.company_research
+        if session.current_phase in COMPANY_RESEARCH_PHASES
+        else None
+    )
     system_instruction = build_phase_system_instruction(
-        session.current_phase, candidate_profile, job_description
+        session.current_phase,
+        candidate_profile,
+        job_description,
+        github_tools_available=github_tools_available,
+        retrieved_questions=retrieved_questions,
+        company_research=company_research,
     )
 
-    output = await generate_structured(
-        task=LLM_TASK_INTERVIEWER,
-        contents=history,
-        text_format=InterviewTurnOutput,
-        system_instruction=system_instruction,
-        thinking_level="medium",
-        session_id=session.id,
-        db=db,
-    )
+    if github_tools_available:
+        call_counter = [0]
+        output = await generate_structured_with_tools(
+            task=LLM_TASK_INTERVIEWER,
+            contents=history,
+            text_format=InterviewTurnOutput,
+            system_instruction=system_instruction,
+            thinking_level="medium",
+            tools=GITHUB_TOOLS,
+            tool_dispatch=_counting_dispatch(GITHUB_TOOL_DISPATCH, call_counter),
+            max_rounds=GITHUB_TOOL_LOOP_MAX_ROUNDS,
+            session_id=session.id,
+            db=db,
+        )
+        session.github_call_count += call_counter[0]
+    else:
+        output = await generate_structured(
+            task=LLM_TASK_INTERVIEWER,
+            contents=history,
+            text_format=InterviewTurnOutput,
+            system_instruction=system_instruction,
+            thinking_level="medium",
+            session_id=session.id,
+            db=db,
+        )
 
     reply = output.reply
 

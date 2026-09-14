@@ -3,7 +3,12 @@ from pydantic import BaseModel
 from pytest_mock import MockerFixture
 
 from app.core.config import ElevenLabsSettings, GatewaySettings
-from app.core.llm_gateway import generate_structured, stream_text, synthesize_speech
+from app.core.llm_gateway import (
+    generate_structured,
+    generate_structured_with_tools,
+    stream_text,
+    synthesize_speech,
+)
 from app.core.session_lookup import InterviewSessionNotFoundError
 
 
@@ -282,6 +287,99 @@ async def test_synthesize_speech_logs_error_and_reraises(
     assert logged.error == "elevenlabs down"
     assert logged.response == ""
     assert logged.extra == {"character_count": len("hello")}
+
+
+async def test_generate_structured_with_tools_runs_tool_loop_then_final_structured_call(
+    mocker: MockerFixture,
+) -> None:
+    _mock_gateway_settings(mocker)
+    history_after_tools = [
+        types.Content(role="user", parts=[types.Part.from_text(text="hi")])
+    ]
+    fake_run_tool_loop = mocker.patch(
+        "app.core.llm_gateway.run_tool_loop",
+        new_callable=mocker.AsyncMock,
+        return_value=history_after_tools,
+    )
+    fake_generate_structured = mocker.patch(
+        "app.core.llm_gateway.generate_structured",
+        new_callable=mocker.AsyncMock,
+        return_value=_FakeOutput(value="final"),
+    )
+    fake_db = mocker.AsyncMock()
+
+    result = await generate_structured_with_tools(
+        task="interviewer",
+        contents=[types.Content(role="user", parts=[types.Part.from_text(text="hi")])],
+        text_format=_FakeOutput,
+        system_instruction="system",
+        thinking_level="medium",
+        tools=[],
+        tool_dispatch={},
+        max_rounds=4,
+        session_id=7,
+        db=fake_db,
+    )
+
+    assert result == _FakeOutput(value="final")
+    fake_run_tool_loop.assert_awaited_once()
+    tool_loop_kwargs = fake_run_tool_loop.call_args.kwargs
+    assert tool_loop_kwargs["model"] == "gemini-3.8-flash"
+    assert tool_loop_kwargs["max_rounds"] == 4
+    assert callable(tool_loop_kwargs["on_round"])
+
+    fake_generate_structured.assert_awaited_once()
+    final_kwargs = fake_generate_structured.call_args.kwargs
+    assert final_kwargs["task"] == "interviewer"
+    assert final_kwargs["contents"] == history_after_tools
+    assert final_kwargs["session_id"] == 7
+
+
+async def test_generate_structured_with_tools_logs_each_tool_round(
+    mocker: MockerFixture,
+) -> None:
+    _mock_gateway_settings(mocker)
+    usage = types.GenerateContentResponseUsageMetadata(
+        prompt_token_count=3, candidates_token_count=2, total_token_count=5
+    )
+
+    async def fake_run_tool_loop(**kwargs):
+        fake_response = mocker.MagicMock()
+        fake_response.text = None
+        fake_response.usage_metadata = usage
+        await kwargs["on_round"](0, fake_response, 0.5)
+        return [types.Content(role="user", parts=[types.Part.from_text(text="hi")])]
+
+    mocker.patch("app.core.llm_gateway.run_tool_loop", side_effect=fake_run_tool_loop)
+    mocker.patch(
+        "app.core.llm_gateway.generate_structured",
+        new_callable=mocker.AsyncMock,
+        return_value=_FakeOutput(value="final"),
+    )
+    fake_db = mocker.AsyncMock()
+    fake_db.add = mocker.MagicMock()
+
+    await generate_structured_with_tools(
+        task="interviewer",
+        contents=[types.Content(role="user", parts=[types.Part.from_text(text="hi")])],
+        text_format=_FakeOutput,
+        system_instruction="system",
+        thinking_level="medium",
+        tools=[],
+        tool_dispatch={},
+        max_rounds=4,
+        session_id=7,
+        db=fake_db,
+    )
+
+    fake_db.add.assert_called_once()
+    logged = fake_db.add.call_args.args[0]
+    assert logged.task == "interviewer_tool_call"
+    assert logged.model == "gemini-3.8-flash"
+    assert logged.session_id == 7
+    assert logged.response == "<function call>"
+    assert logged.prompt_token_count == 3
+    assert logged.latency_seconds == 0.5
 
 
 def test_gateway_settings_model_for_task_resolves_interviewer() -> None:

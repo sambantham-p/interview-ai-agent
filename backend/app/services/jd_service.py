@@ -20,7 +20,9 @@ EXTRACTION_INSTRUCTIONS = (
     "Otherwise extract: role, the job title/category (stated or clearly "
     "implied, e.g. 'AI Engineer', 'Full Stack Developer', 'Backend "
     "Engineer'), normalized to a clear category even if the posting's own "
-    "title is more specific; "
+    "title is more specific; company_name, the hiring company's name if "
+    "stated (leave it null if not named - this field is always optional "
+    "and never affects extractable); "
     f"seniority, exactly one of {', '.join(SENIORITY_LEVELS)} (infer from "
     "years of experience, title modifiers, or scope described; use "
     "'entry' only with no signal at all); tech_stack, every specific "
@@ -99,6 +101,7 @@ async def parse_and_persist_job_description(
 
     jd = JobDescription(
         role=extracted.role,
+        company_name=extracted.company_name,
         seniority=extracted.seniority,
         tech_stack=extracted.tech_stack,
         coding_assessment_expected=bool(extracted.coding_assessment_expected),

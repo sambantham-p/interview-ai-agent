@@ -50,7 +50,12 @@ async def test_parse_and_persist_resume_builds_and_persists_a_candidate_profile(
         }
     ]
     assert profile.projects == [
-        {"name": "Widget", "description": None, "tech_stack": ["Python"]}
+        {
+            "name": "Widget",
+            "description": None,
+            "tech_stack": ["Python"],
+            "repo_url": None,
+        }
     ]
     fake_db.add.assert_called_once_with(profile)
     fake_db.commit.assert_awaited_once()

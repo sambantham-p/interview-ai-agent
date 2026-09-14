@@ -10,6 +10,7 @@ def test_table_name_and_columns() -> None:
         "id",
         "user_id",
         "role",
+        "company_name",
         "seniority",
         "tech_stack",
         "coding_assessment_expected",

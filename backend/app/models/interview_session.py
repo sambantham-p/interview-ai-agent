@@ -31,6 +31,10 @@ class InterviewSession(Base):
     red_flag_warning_issued: Mapped[bool] = mapped_column(default=False)
     hint_counts: Mapped[dict] = mapped_column(JSONB, default=dict)
     end_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    question_pool: Mapped[list] = mapped_column(JSONB, default=list)
+    asked_question_ids: Mapped[dict] = mapped_column(JSONB, default=dict)
+    github_call_count: Mapped[int] = mapped_column(Integer, default=0)
+    company_research: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

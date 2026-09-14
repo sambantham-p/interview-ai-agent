@@ -1,7 +1,7 @@
 """add fk llm_calls.session_id -> interview_sessions.id
 
 Revision ID: 571df5a1c75a
-Revises: ffc09808bc43
+Revises: 88fa803fe9e3
 Create Date: 2026-09-14 00:00:00.000000
 
 """
@@ -13,17 +13,13 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "571df5a1c75a"
-down_revision: str | Sequence[str] | None = "ffc09808bc43"
+down_revision: str | Sequence[str] | None = "88fa803fe9e3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # Null out any session_id that doesn't reference a real interview
-    # session before adding the FK - Postgres validates existing rows
-    # against a new constraint, and pre-fix code (see the app-level guard
-    # added alongside this migration) let bogus ids get logged here.
     op.execute(
         sa.text(
             "UPDATE llm_calls SET session_id = NULL "

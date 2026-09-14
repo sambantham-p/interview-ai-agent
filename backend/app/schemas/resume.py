@@ -40,6 +40,15 @@ class ProjectEntry(BaseModel):
     name: str
     description: str | None = None
     tech_stack: list[str] = []
+    repo_url: str | None = Field(
+        default=None,
+        description=(
+            "This project's own repository link, if the resume shows one "
+            "next to this specific project , distinct from the resume's "
+            "general profile-level GitHub link (see github_url below). "
+            "None if this project has no repo link of its own."
+        ),
+    )
 
 
 class ResumeExtraction(BaseModel):
