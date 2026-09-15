@@ -17,7 +17,10 @@ it.
 | LLM provider | Google Gemini (`google-genai` — chat, native audio STT) |
 | Voice TTS | ElevenLabs |
 | Resume parsing | Gemini native PDF input (`google-genai`), not `pypdf` |
-| GitHub grounding (Interview Phase 2) | live tool-calling — Gemini native function calling over an `httpx` GitHub REST client, no embeddings/vector index |
+| GitHub grounding (Interview Phase 2) | live tool-calling — Gemini native function calling over an `httpx` GitHub REST client, no embeddings/vector index, scoped to the candidate's own account only |
+| Company research (Phases 6/7) | real MCP client (`mcp` SDK) against Parallel's public Search MCP server — no API key |
+| Technical-question RAG embeddings (Phases 3/4/5) | local `nomic-embed-text-v1.5` via `fastembed` (ONNX, no `torch`) |
+| Post-hoc scoring | 5 independent Judge agents (PoLL pattern, no cross-judge debate) over Gemini structured output — see `app/services/judge_service.py` |
 | External REST calls (GitHub) | `httpx` |
 | Config | `pydantic-settings`, env vars in `.env` (see `.env.example`) |
 | Testing | `pytest`, `pytest-cov`, `pytest-asyncio`, `pytest-mock`, `httpx` (`TestClient`) |
@@ -36,26 +39,38 @@ backend/
 │   │   ├── app.py                 #   API_V1_PREFIX, SERVICE_NAME, DEFAULT_USER_ID
 │   │   ├── health.py              #   HEALTH_STATUS_HEALTHY / _UNHEALTHY
 │   │   ├── responses.py           #   RESPONSE_STATUS_OK / _ERROR (envelope's "status" field)
-│   │   └── interview.py           #   INTERVIEW_PHASES
+│   │   ├── interview.py           #   INTERVIEW_PHASES, hint/red-flag/coding-difficulty config
+│   │   ├── judge.py               #   JUDGE_NAMES, JUDGE_PHASES, JUDGE_WEIGHTS, RECOMMENDATION_TIERS
+│   │   ├── gemini.py / resume.py / jd.py / question_bank.py / github.py / voice.py / search.py / logging.py
 │   ├── core/
 │   │   ├── config.py              # Settings (pydantic-settings) — loads .env, e.g. DATABASE_URL
 │   │   ├── db.py                  # async SQLAlchemy engine/session (get_engine, get_db)
 │   │   ├── responses.py           # success_response() / error_response() — the envelope builders
-│   │   └── exception_handlers.py  # wraps HTTPException / validation / 500s in the same envelope
-│   ├── models/                    # SQLAlchemy ORM models (candidate_profile, job_description)
-│   ├── schemas/
-│   │   └── response.py            # APIResponse / ErrorDetail Pydantic models
-│   ├── routes/
-│   │   └── health.py              # /health
-│   ├── services/                  # business logic
+│   │   ├── exception_handlers.py  # wraps HTTPException / validation / 500s in the same envelope
+│   │   ├── gemini_client.py       # cached genai.Client, extract_structured(), file input, tool loop
+│   │   ├── llm_gateway.py         # model routing + Postgres call-logging + streaming, on top of gemini_client
+│   │   ├── github_client.py / github_tools.py   # unauthenticated GitHub REST client + Gemini tool declarations (scoped to the candidate's own account)
+│   │   ├── search_mcp_client.py   # real MCP client (Parallel Search) for company research
+│   │   ├── embeddings.py          # local nomic-embed-text (fastembed) for the RAG question bank
+│   │   ├── elevenlabs_client.py   # TTS
+│   │   ├── session_lookup.py      # shared "load this InterviewSession or 404" helper
+│   │   └── request_logging.py / logging.py   # structlog + request-id correlation, see Logging below
+│   ├── models/                    # SQLAlchemy ORM models: candidate_profile, job_description,
+│   │                               #   interview_session, llm_call, technical_question,
+│   │                               #   judge_evaluation, interview_report
+│   ├── schemas/                   # request/response Pydantic models — response.py, resume.py, jd.py,
+│   │                               #   interview.py, judge.py, voice.py
+│   ├── routes/                    # health.py, resume.py, jd.py, interview.py (start/turn/report), voice.py
+│   ├── services/                  # business logic — resume_service, jd_service, interview_service +
+│   │                               #   interview_prompts (the 7-phase Interviewer agent), judge_service +
+│   │                               #   judge_prompts (the 5 post-hoc Judges), question_bank_service (RAG)
 │   └── utils/                     # generic, framework-agnostic helpers
+├── scripts/
+│   └── seed_technical_questions.py   # one-off seed for the RAG question bank (not an Alembic migration)
 ├── migrations/                      # Alembic migrations — env.py reads DATABASE_URL via app.core.config
 ├── tests/                         # mirrors app/'s structure 1:1 — see Testing below
 │   ├── conftest.py                # shared fixtures (TestClient, ...)
-│   ├── core/
-│   ├── models/
-│   ├── constants/
-│   └── routes/
+│   ├── core/ models/ schemas/ constants/ routes/ services/ scripts/
 ├── requirements.txt                # runtime + test deps (pinned)
 ├── requirements-dev.txt            # lint/security tooling only (ruff, bandit, pre-commit)
 ├── pyproject.toml                  # ruff, bandit, and pytest/coverage config
