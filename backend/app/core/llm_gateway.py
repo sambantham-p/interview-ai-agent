@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants.voice import TTS_TASK
 from app.core.config import get_elevenlabs_settings, get_gateway_settings
+from app.core.db import get_session_factory
 from app.core.elevenlabs_client import synthesize_speech as _synthesize_speech
 from app.core.gemini_client import (
     ThinkingLevel,
@@ -47,7 +48,6 @@ def _contents_as_text(contents: list[types.Part] | list[types.Content]) -> str:
 
 
 async def _log_call(
-    db: AsyncSession,
     *,
     task: str,
     model: str,
@@ -62,6 +62,11 @@ async def _log_call(
     """Every LLM Gateway call logs here, success or failure - this is
     the only place that sees which agent role is driving cost/latency,
     and the mechanism behind the per-interview voice-cost cap.
+
+    Deliberately uses its own DB session rather than the caller's.
+    Using a separate session prevents logging from committing or releasing locks
+    held by the caller's transaction. Logging failures are swallowed so they
+    never fail an otherwise successful interview turn.
     """
     call = LLMCall(
         task=task,
@@ -82,8 +87,12 @@ async def _log_call(
             )
         },
     )
-    db.add(call)
-    await db.commit()
+    try:
+        async with get_session_factory()() as log_db:
+            log_db.add(call)
+            await log_db.commit()
+    except Exception:
+        logger.exception("llm_gateway.log_call.failed", task=task)
 
 
 async def generate_structured[T: BaseModel](
@@ -132,7 +141,6 @@ async def generate_structured[T: BaseModel](
         )
     except Exception as exc:
         await _log_call(
-            db,
             task=task,
             model=model,
             session_id=session_id,
@@ -145,7 +153,6 @@ async def generate_structured[T: BaseModel](
         raise
 
     await _log_call(
-        db,
         task=task,
         model=model,
         session_id=session_id,
@@ -187,7 +194,6 @@ async def generate_structured_with_tools[T: BaseModel](
         latency_seconds: float,
     ) -> None:
         await _log_call(
-            db,
             task=f"{task}_tool_call",
             model=model,
             session_id=session_id,
@@ -269,7 +275,6 @@ async def stream_text(
         raise
     finally:
         await _log_call(
-            db,
             task=task,
             model=model,
             session_id=session_id,
@@ -307,7 +312,6 @@ async def synthesize_speech(
         audio_bytes = await _synthesize_speech(text=text)
     except Exception as exc:
         await _log_call(
-            db,
             task=TTS_TASK,
             model=model,
             session_id=session_id,
@@ -321,7 +325,6 @@ async def synthesize_speech(
         raise
 
     await _log_call(
-        db,
         task=TTS_TASK,
         model=model,
         session_id=session_id,

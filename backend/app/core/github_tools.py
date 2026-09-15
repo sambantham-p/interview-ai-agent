@@ -97,3 +97,42 @@ GITHUB_TOOL_DISPATCH: dict[str, Callable[..., Awaitable[Any]]] = {
         owner=kwargs["owner"], repo=kwargs["repo"], path=kwargs["path"]
     ),
 }
+
+
+def build_scoped_github_dispatch(
+    candidate_username: str,
+) -> dict[str, Callable[..., Awaitable[Any]]]:
+    """Build GitHub tool dispatchers restricted to the candidate's account.
+
+    Each dispatcher raises ValueError if the requested username/owner
+    doesn't match `candidate_username`, instead of calling GitHub with it.
+    """
+
+    def _check(name: str, value: str) -> None:
+        if value.lower() != candidate_username.lower():
+            raise ValueError(
+                f"Not permitted: {name} '{value}' does not match the "
+                "candidate's own GitHub account."
+            )
+
+    async def _scoped_list_repos(**kwargs: Any) -> list[dict]:
+        _check("username", kwargs["username"])
+        return await list_repos(username=kwargs["username"])
+
+    async def _scoped_list_repo_files(**kwargs: Any) -> list[dict]:
+        _check("owner", kwargs["owner"])
+        return await list_repo_files(
+            owner=kwargs["owner"], repo=kwargs["repo"], path=kwargs.get("path", "")
+        )
+
+    async def _scoped_read_file(**kwargs: Any) -> str:
+        _check("owner", kwargs["owner"])
+        return await read_file(
+            owner=kwargs["owner"], repo=kwargs["repo"], path=kwargs["path"]
+        )
+
+    return {
+        "list_repos": _scoped_list_repos,
+        "list_repo_files": _scoped_list_repo_files,
+        "read_file": _scoped_read_file,
+    }

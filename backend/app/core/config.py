@@ -2,6 +2,14 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.constants.judge import (
+    LLM_TASK_JUDGE_ATTITUDE,
+    LLM_TASK_JUDGE_CAREER_FIT,
+    LLM_TASK_JUDGE_CODING,
+    LLM_TASK_JUDGE_FUNDAMENTALS,
+    LLM_TASK_JUDGE_PROJECT_DEPTH,
+)
+
 
 class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -46,9 +54,17 @@ class GatewaySettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     gemini_interviewer_model: str
+    gemini_judge_model: str
 
     def model_for_task(self, task: str) -> str:
-        routes = {"interviewer": self.gemini_interviewer_model}
+        routes = {
+            "interviewer": self.gemini_interviewer_model,
+            LLM_TASK_JUDGE_PROJECT_DEPTH: self.gemini_judge_model,
+            LLM_TASK_JUDGE_CODING: self.gemini_judge_model,
+            LLM_TASK_JUDGE_FUNDAMENTALS: self.gemini_judge_model,
+            LLM_TASK_JUDGE_ATTITUDE: self.gemini_judge_model,
+            LLM_TASK_JUDGE_CAREER_FIT: self.gemini_judge_model,
+        }
         if task not in routes:
             raise KeyError(f"No model route configured for task {task!r}")
         return routes[task]
