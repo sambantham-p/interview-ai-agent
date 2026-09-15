@@ -22,7 +22,7 @@ from app.services.judge_service import (
     _apply_hint_penalty,
     _effective_weights,
     _tier_for_score,
-    _transcript_slice_for_phases,
+    _transcript_slice_indices_for_phases,
     generate_report,
     get_evaluations_by_ids,
     get_latest_report,
@@ -136,7 +136,7 @@ def _mock_db_for_report(
     added: list[Any] = []
     next_id = {"value": 1}
 
-    async def get(model, _id):
+    async def get(model, _id, **_kwargs):
         if model is InterviewSession:
             return session
         if model is JobDescription:
@@ -230,22 +230,26 @@ def test_tier_for_score_boundaries(score: float, expected_tier: str) -> None:
     assert _tier_for_score(score) == expected_tier
 
 
-def test_transcript_slice_for_phases_none_returns_full_transcript() -> None:
+def test_transcript_slice_indices_for_phases_none_returns_every_index() -> None:
     transcript = _full_transcript()
-    assert _transcript_slice_for_phases(transcript, None) == transcript
+    assert _transcript_slice_indices_for_phases(transcript, None) == list(
+        range(len(transcript))
+    )
 
 
-def test_transcript_slice_for_phases_filters_by_phase() -> None:
+def test_transcript_slice_indices_for_phases_filters_by_phase() -> None:
     transcript = _full_transcript()
-    sliced = _transcript_slice_for_phases(transcript, ["coding_challenge"])
+    indices = _transcript_slice_indices_for_phases(transcript, ["coding_challenge"])
 
-    assert len(sliced) == 1
-    assert sliced[0]["text"] == "coding reply"
+    assert len(indices) == 1
+    assert transcript[indices[0]]["text"] == "coding reply"
 
 
-def test_transcript_slice_for_phases_excludes_entries_missing_phase_key() -> None:
+def test_transcript_slice_indices_for_phases_excludes_entries_missing_phase_key() -> (
+    None
+):
     transcript = [{"role": "user", "text": "no phase key here"}]
-    assert _transcript_slice_for_phases(transcript, ["coding_challenge"]) == []
+    assert _transcript_slice_indices_for_phases(transcript, ["coding_challenge"]) == []
 
 
 # --- generate_report() orchestration tests ---

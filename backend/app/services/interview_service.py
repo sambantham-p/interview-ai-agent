@@ -185,7 +185,7 @@ async def submit_turn(
     conversation history, apply the agent's live judgment calls (hint
     level, red flag, phase transition), persist the updated session.
     """
-    session = await get_interview_session_or_404(session_id, db, for_update=True)
+    session = await get_interview_session_or_404(session_id, db)
     if session.status != "in_progress":
         raise InterviewSessionNotActiveError(
             f"Interview session {session_id} is {session.status}, not accepting turns"
@@ -196,7 +196,10 @@ async def submit_turn(
     assert candidate_profile is not None  # nosec B101
     assert job_description is not None  # nosec B101
 
-    transcript = [*session.transcript, {"role": "user", "text": message}]
+    transcript = [
+        *session.transcript,
+        {"role": "user", "text": message, "phase": session.current_phase},
+    ]
     history = _transcript_to_history(transcript)
     candidate_username = extract_github_username(candidate_profile.github_url)
     github_tools_available = (
@@ -240,7 +243,7 @@ async def submit_turn(
             session_id=session.id,
             db=db,
         )
-        session.github_call_count += call_counter[0]
+        github_calls_made = call_counter[0]
     else:
         output = await generate_structured(
             task=LLM_TASK_INTERVIEWER,
@@ -251,6 +254,14 @@ async def submit_turn(
             session_id=session.id,
             db=db,
         )
+        github_calls_made = 0
+
+    session = await get_interview_session_or_404(session_id, db, for_update=True)
+    if session.status != "in_progress":
+        raise InterviewSessionNotActiveError(
+            f"Interview session {session_id} is {session.status}, not accepting turns"
+        )
+    session.github_call_count += github_calls_made
 
     reply = output.reply
 

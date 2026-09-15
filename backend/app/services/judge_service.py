@@ -91,19 +91,22 @@ class InterviewReportNotFoundError(Exception):
     """
 
 
-def _transcript_slice_for_phases(
+def _transcript_slice_indices_for_phases(
     transcript: list[dict], phases: list[str] | None
-) -> list[dict]:
-    """Filters transcript entries to only those whose "phase" key (tagged
-    on the model reply by interview_service.py) is in `phases`. `phases
-    is None` returns the full transcript unchanged - used by the
-    cross-cutting Attitude judge. An old-shape entry with no "phase" key
-    (from before transcript enrichment, or any "role": "user" entry) is
-    excluded rather than raising.
+) -> list[int]:
+    """Returns the indices into `transcript` (preserving order) of every
+    entry whose "phase" key (tagged on both the candidate's message and
+    the model's reply by interview_service.py) is in `phases`. `phases is
+    None` returns every index - used by the cross-cutting Attitude judge.
+    An old-shape entry with no "phase" key (from before transcript
+    enrichment) is excluded rather than raising. Returning indices rather
+    than entries lets the caller translate a judge's `transcript_index`
+    evidence citation (position within the filtered segment it actually
+    saw) back into a position in the full persisted transcript.
     """
     if phases is None:
-        return transcript
-    return [entry for entry in transcript if entry.get("phase") in phases]
+        return list(range(len(transcript)))
+    return [i for i, entry in enumerate(transcript) if entry.get("phase") in phases]
 
 
 def _transcript_to_contents(transcript: list[dict]) -> list[types.Content]:
@@ -173,8 +176,8 @@ async def _run_judge(
     this JD, or an ended_early session never reached this phase.
     """
     phases = JUDGE_PHASES[judge_name]
-    segment = _transcript_slice_for_phases(session.transcript, phases)
-    if phases is not None and not segment:
+    indices = _transcript_slice_indices_for_phases(session.transcript, phases)
+    if phases is not None and not indices:
         return None
 
     extra_context = None
@@ -184,7 +187,10 @@ async def _run_judge(
             severe_red_flag=session.end_reason == "abusive_language",
             hint_counts=session.hint_counts,
         )
-        segment = session.transcript  # cross-cutting: full transcript
+        # cross-cutting: full transcript
+        indices = list(range(len(session.transcript)))
+
+    segment = [session.transcript[i] for i in indices]
 
     system_instruction = build_judge_system_instruction(
         _JUDGE_INSTRUCTIONS_BY_NAME[judge_name],
@@ -208,13 +214,27 @@ async def _run_judge(
         if session.end_reason == "abusive_language":
             score = min(score, ATTITUDE_ABUSIVE_LANGUAGE_SCORE_CAP)
 
+    evidence = [
+        item.model_copy(
+            update={
+                "transcript_index": (
+                    indices[item.transcript_index]
+                    if item.transcript_index is not None
+                    and 0 <= item.transcript_index < len(indices)
+                    else None
+                )
+            }
+        )
+        for item in output.evidence
+    ]
+
     evaluation = JudgeEvaluation(
         session_id=session.id,
         judge_name=judge_name,
         dimension=_JUDGE_DIMENSION_LABEL[judge_name],
         score=round(score, 2),
         summary=output.summary,
-        evidence=[item.model_dump() for item in output.evidence],
+        evidence=[item.model_dump() for item in evidence],
     )
     db.add(evaluation)
     await db.flush()
@@ -230,8 +250,15 @@ async def generate_report(*, session_id: int, db: AsyncSession) -> InterviewRepo
     ended early for a red-flag threshold or abusive language still needs
     an evaluation report, with that context reflected in the Attitude
     judge's score (see _run_judge).
+
+    Row-locks the session for the whole call so two concurrent report
+    requests for the same finished session serialize instead of both
+    running all 5 Judges at once and inserting separate reports. Unlike
+    the live turn-processing path (see interview_service.py), holding the
+    lock across the Gemini calls here is fine - this only runs once per
+    finished interview, with no live candidate waiting on a reply.
     """
-    session = await get_interview_session_or_404(session_id, db)
+    session = await get_interview_session_or_404(session_id, db, for_update=True)
     if session.status not in ("completed", "ended_early"):
         raise InterviewSessionNotReadyForReportError(
             f"Interview session {session_id} is {session.status}, not ready for a report"
