@@ -383,12 +383,20 @@ async def test_extract_structured_calls_on_usage_with_none_on_transient_failure(
     on_usage.assert_called_once_with(None)
 
 
-async def test_extract_structured_calls_on_usage_with_none_on_parse_failure(
+async def test_extract_structured_calls_on_usage_with_real_usage_on_parse_failure(
     mocker: MockerFixture,
 ) -> None:
+    """A parse failure means the response didn't match text_format, not
+    that the Gemini call itself failed - real usage_metadata is still
+    available on the response and must still reach the gateway's logging,
+    not be discarded as if the call never happened.
+    """
     fake_response = mocker.MagicMock()
     fake_response.parsed = None
     fake_response.text = "not valid json"
+    fake_response.usage_metadata = types.GenerateContentResponseUsageMetadata(
+        total_token_count=7
+    )
     fake_client = mocker.MagicMock()
     fake_client.aio.models.generate_content = mocker.AsyncMock(
         return_value=fake_response
@@ -406,7 +414,7 @@ async def test_extract_structured_calls_on_usage_with_none_on_parse_failure(
             on_usage=on_usage,
         )
 
-    on_usage.assert_called_once_with(None)
+    on_usage.assert_called_once_with(fake_response.usage_metadata)
 
 
 async def test_extract_structured_requires_system_instruction_to_be_specified(
@@ -611,3 +619,52 @@ async def test_run_tool_loop_does_not_wrap_non_transient_failures(
         )
 
     assert exc_info.value is original
+
+
+async def test_run_tool_loop_raises_parse_error_when_no_candidates(
+    mocker: MockerFixture,
+) -> None:
+    response = MagicMock()
+    response.candidates = []
+    response.prompt_feedback = MagicMock(block_reason="SAFETY")
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(return_value=response)
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    with pytest.raises(GeminiResponseParseError, match="SAFETY"):
+        await run_tool_loop(
+            model="gemini-3.8-flash",
+            contents=[
+                types.Content(role="user", parts=[types.Part.from_text(text="hi")])
+            ],
+            system_instruction="You have tools.",
+            tools=[],
+            tool_dispatch={},
+            thinking_level="medium",
+            max_rounds=4,
+        )
+
+
+async def test_run_tool_loop_raises_parse_error_when_candidate_has_no_content(
+    mocker: MockerFixture,
+) -> None:
+    candidate = MagicMock()
+    candidate.content = None
+    response = MagicMock()
+    response.candidates = [candidate]
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(return_value=response)
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    with pytest.raises(GeminiResponseParseError):
+        await run_tool_loop(
+            model="gemini-3.8-flash",
+            contents=[
+                types.Content(role="user", parts=[types.Part.from_text(text="hi")])
+            ],
+            system_instruction="You have tools.",
+            tools=[],
+            tool_dispatch={},
+            thinking_level="medium",
+            max_rounds=4,
+        )

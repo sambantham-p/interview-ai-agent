@@ -17,6 +17,8 @@ class InterviewTurnOutput(BaseModel):
     )
     hint_level: int | None = Field(
         default=None,
+        ge=1,
+        le=3,
         description=(
             "1, 2, or 3 if this reply gave a hint because the candidate seemed "
             "stuck (silence, 'I don't know', stammering, long hesitation) - "

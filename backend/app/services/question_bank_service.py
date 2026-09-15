@@ -1,7 +1,10 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.constants.question_bank import QUESTION_POOL_TOP_K
+from app.constants.question_bank import (
+    QUESTION_POOL_MAX_COSINE_DISTANCE,
+    QUESTION_POOL_TOP_K,
+)
 from app.core.embeddings import embed_text
 from app.models.job_description import JobDescription
 from app.models.technical_question import TechnicalQuestion
@@ -29,9 +32,11 @@ async def prefetch_question_pool(
     )
     query_embedding = await embed_text(query_text)
 
+    distance = TechnicalQuestion.embedding.cosine_distance(query_embedding)
     result = await db.execute(
         select(TechnicalQuestion)
-        .order_by(TechnicalQuestion.embedding.cosine_distance(query_embedding))
+        .where(distance <= QUESTION_POOL_MAX_COSINE_DISTANCE)
+        .order_by(distance)
         .limit(top_k)
     )
     questions = result.scalars().all()

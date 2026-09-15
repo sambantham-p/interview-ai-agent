@@ -1,3 +1,4 @@
+import inspect
 from datetime import UTC, datetime
 from typing import Any
 
@@ -69,7 +70,12 @@ def _fake_session(**overrides) -> InterviewSession:
 def _mock_db(mocker: MockerFixture, *, get_side_effect) -> Any:
     fake_db = mocker.AsyncMock()
     fake_db.add = mocker.MagicMock()
-    fake_db.get = mocker.AsyncMock(side_effect=get_side_effect)
+
+    async def _get(model, _id, **_kwargs):
+        result = get_side_effect(model, _id)
+        return await result if inspect.isawaitable(result) else result
+
+    fake_db.get = mocker.AsyncMock(side_effect=_get)
     return fake_db
 
 
@@ -118,6 +124,7 @@ async def test_start_interview_creates_session_and_opening_reply(
     assert (
         session.transcript[-1]["text"] == "Welcome! Let's start with your background."
     )
+    assert session.transcript[-1]["phase"] == INTERVIEW_PHASES[0]
     assert session.question_pool == []
     fake_db.commit.assert_awaited_once()
 
@@ -629,6 +636,34 @@ async def test_submit_turn_advances_to_next_phase_when_complete(
     assert updated.current_phase == INTERVIEW_PHASES[1]
     assert updated.status == "in_progress"
     assert updated.transcript[-1]["text"] == "Good, let's move on."
+    # The model-turn entry is tagged with the phase it was asked in, not
+    # the phase the session advanced to afterward.
+    assert updated.transcript[-1]["phase"] == INTERVIEW_PHASES[0]
+
+
+async def test_submit_turn_tags_transcript_entry_with_hint_and_flag_metadata(
+    mocker: MockerFixture,
+) -> None:
+    session = _fake_session()
+    fake_db = await _db_for_turn(mocker, session)
+    _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Here's a nudge.",
+            phase_complete=False,
+            hint_level=1,
+            red_flag=False,
+            anxiety_detected=True,
+        ),
+    )
+
+    updated = await submit_turn(session_id=10, message="I'm not sure", db=fake_db)
+
+    entry = updated.transcript[-1]
+    assert entry["hint_level"] == 1
+    assert entry["red_flag"] is False
+    assert entry["severe_red_flag"] is False
+    assert entry["anxiety_detected"] is True
 
 
 async def test_submit_turn_completes_interview_after_last_phase(

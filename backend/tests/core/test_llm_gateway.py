@@ -23,6 +23,23 @@ def _mock_gateway_settings(mocker: MockerFixture) -> None:
     )
 
 
+def _mock_log_session(mocker: MockerFixture):
+    """_log_call() logs on its own DB session (see llm_gateway.py) rather
+    than the caller's `db` - patch app.core.llm_gateway.get_session_factory
+    to intercept what actually gets logged, instead of asserting on the
+    caller's `db` mock.
+    """
+    fake_log_db = mocker.AsyncMock()
+    fake_log_db.add = mocker.MagicMock()
+    fake_log_db.__aenter__ = mocker.AsyncMock(return_value=fake_log_db)
+    fake_log_db.__aexit__ = mocker.AsyncMock(return_value=False)
+    mocker.patch(
+        "app.core.llm_gateway.get_session_factory",
+        return_value=lambda: fake_log_db,
+    )
+    return fake_log_db
+
+
 async def test_generate_structured_resolves_model_and_logs_success(
     mocker: MockerFixture,
 ) -> None:
@@ -38,8 +55,8 @@ async def test_generate_structured_resolves_model_and_logs_success(
     mocker.patch(
         "app.core.llm_gateway.extract_structured", side_effect=fake_extract_structured
     )
+    fake_log_db = _mock_log_session(mocker)
     fake_db = mocker.AsyncMock()
-    fake_db.add = mocker.MagicMock()
 
     result = await generate_structured(
         task="interviewer",
@@ -52,14 +69,16 @@ async def test_generate_structured_resolves_model_and_logs_success(
     )
 
     assert result == _FakeOutput(value="hi")
-    fake_db.add.assert_called_once()
-    logged = fake_db.add.call_args.args[0]
+    fake_log_db.add.assert_called_once()
+    logged = fake_log_db.add.call_args.args[0]
     assert logged.task == "interviewer"
     assert logged.model == "gemini-3.8-flash"
     assert logged.session_id == 42
     assert logged.prompt_token_count == 10
     assert logged.error is None
-    fake_db.commit.assert_awaited_once()
+    fake_log_db.commit.assert_awaited_once()
+    fake_db.add.assert_not_called()
+    fake_db.commit.assert_not_awaited()
 
 
 async def test_generate_structured_logs_error_and_reraises(
@@ -74,8 +93,8 @@ async def test_generate_structured_logs_error_and_reraises(
     mocker.patch(
         "app.core.llm_gateway.extract_structured", side_effect=fake_extract_structured
     )
+    fake_log_db = _mock_log_session(mocker)
     fake_db = mocker.AsyncMock()
-    fake_db.add = mocker.MagicMock()
 
     try:
         await generate_structured(
@@ -91,9 +110,15 @@ async def test_generate_structured_logs_error_and_reraises(
     except ValueError:
         pass
 
-    logged = fake_db.add.call_args.args[0]
+    logged = fake_log_db.add.call_args.args[0]
     assert logged.error == "boom"
     assert logged.response == ""
+    # A failed call must still log (above) without ever touching the
+    # caller's own db/transaction - e.g. start_interview flushes a
+    # not-yet-fully-populated InterviewSession before this call; logging
+    # must never be what durably commits it.
+    fake_db.add.assert_not_called()
+    fake_db.commit.assert_not_awaited()
 
 
 async def test_generate_structured_accepts_multi_turn_content_history(
@@ -110,8 +135,8 @@ async def test_generate_structured_accepts_multi_turn_content_history(
     mocker.patch(
         "app.core.llm_gateway.extract_structured", side_effect=fake_extract_structured
     )
+    fake_log_db = _mock_log_session(mocker)
     fake_db = mocker.AsyncMock()
-    fake_db.add = mocker.MagicMock()
     history = [
         types.Content(role="user", parts=[types.Part.from_text(text="question one")]),
         types.Content(role="model", parts=[types.Part.from_text(text="answer one")]),
@@ -128,7 +153,7 @@ async def test_generate_structured_accepts_multi_turn_content_history(
     )
 
     assert captured_contents["contents"] == history
-    logged = fake_db.add.call_args.args[0]
+    logged = fake_log_db.add.call_args.args[0]
     assert "question one" in logged.prompt
     assert "answer one" in logged.prompt
 
@@ -154,8 +179,8 @@ async def test_stream_text_yields_chunks_and_logs_accumulated_response(
         return_value=_fake_stream()
     )
     mocker.patch("app.core.llm_gateway.get_gemini_client", return_value=fake_client)
+    fake_log_db = _mock_log_session(mocker)
     fake_db = mocker.AsyncMock()
-    fake_db.add = mocker.MagicMock()
 
     chunks = [
         chunk
@@ -172,7 +197,7 @@ async def test_stream_text_yields_chunks_and_logs_accumulated_response(
     ]
 
     assert chunks == ["Hello ", "world"]
-    logged = fake_db.add.call_args.args[0]
+    logged = fake_log_db.add.call_args.args[0]
     assert logged.response == "Hello world"
     assert logged.total_token_count == 3
     assert logged.error is None
@@ -185,8 +210,8 @@ async def test_stream_text_logs_error_when_stream_raises(mocker: MockerFixture) 
         side_effect=RuntimeError("stream blew up")
     )
     mocker.patch("app.core.llm_gateway.get_gemini_client", return_value=fake_client)
+    fake_log_db = _mock_log_session(mocker)
     fake_db = mocker.AsyncMock()
-    fake_db.add = mocker.MagicMock()
 
     try:
         async for _ in stream_text(
@@ -204,7 +229,7 @@ async def test_stream_text_logs_error_when_stream_raises(mocker: MockerFixture) 
     except RuntimeError:
         pass
 
-    logged = fake_db.add.call_args.args[0]
+    logged = fake_log_db.add.call_args.args[0]
     assert logged.error == "stream blew up"
 
 
@@ -228,20 +253,20 @@ async def test_synthesize_speech_returns_audio_and_logs_character_count(
         new_callable=mocker.AsyncMock,
         return_value=b"fake-audio-bytes",
     )
+    fake_log_db = _mock_log_session(mocker)
     fake_db = mocker.AsyncMock()
-    fake_db.add = mocker.MagicMock()
 
     result = await synthesize_speech(text="hello there", session_id=5, db=fake_db)
 
     assert result == b"fake-audio-bytes"
-    logged = fake_db.add.call_args.args[0]
+    logged = fake_log_db.add.call_args.args[0]
     assert logged.task == "tts"
     assert logged.model == "eleven_multilingual_v2"
     assert logged.session_id == 5
     assert logged.prompt == "hello there"
     assert logged.extra == {"character_count": len("hello there")}
     assert logged.error is None
-    fake_db.commit.assert_awaited_once()
+    fake_log_db.commit.assert_awaited_once()
 
 
 async def test_synthesize_speech_raises_for_nonexistent_session_without_calling_elevenlabs(
@@ -274,8 +299,8 @@ async def test_synthesize_speech_logs_error_and_reraises(
         new_callable=mocker.AsyncMock,
         side_effect=RuntimeError("elevenlabs down"),
     )
+    fake_log_db = _mock_log_session(mocker)
     fake_db = mocker.AsyncMock()
-    fake_db.add = mocker.MagicMock()
 
     try:
         await synthesize_speech(text="hello", session_id=None, db=fake_db)
@@ -283,7 +308,7 @@ async def test_synthesize_speech_logs_error_and_reraises(
     except RuntimeError:
         pass
 
-    logged = fake_db.add.call_args.args[0]
+    logged = fake_log_db.add.call_args.args[0]
     assert logged.error == "elevenlabs down"
     assert logged.response == ""
     assert logged.extra == {"character_count": len("hello")}
@@ -356,8 +381,8 @@ async def test_generate_structured_with_tools_logs_each_tool_round(
         new_callable=mocker.AsyncMock,
         return_value=_FakeOutput(value="final"),
     )
+    fake_log_db = _mock_log_session(mocker)
     fake_db = mocker.AsyncMock()
-    fake_db.add = mocker.MagicMock()
 
     await generate_structured_with_tools(
         task="interviewer",
@@ -372,8 +397,8 @@ async def test_generate_structured_with_tools_logs_each_tool_round(
         db=fake_db,
     )
 
-    fake_db.add.assert_called_once()
-    logged = fake_db.add.call_args.args[0]
+    fake_log_db.add.assert_called_once()
+    logged = fake_log_db.add.call_args.args[0]
     assert logged.task == "interviewer_tool_call"
     assert logged.model == "gemini-3.8-flash"
     assert logged.session_id == 7

@@ -17,7 +17,8 @@ from app.constants.interview import (
 )
 from app.constants.question_bank import QUESTION_BANK_PHASES, QUESTIONS_PER_PHASE
 from app.constants.search import COMPANY_RESEARCH_PHASES
-from app.core.github_tools import GITHUB_TOOL_DISPATCH, GITHUB_TOOLS
+from app.core.github_client import extract_github_username
+from app.core.github_tools import GITHUB_TOOLS, build_scoped_github_dispatch
 from app.core.llm_gateway import generate_structured, generate_structured_with_tools
 from app.core.search_mcp_client import SearchTransientError, search_company_context
 from app.core.session_lookup import (
@@ -170,7 +171,7 @@ async def start_interview(
 
     session.transcript = [
         {"role": "user", "text": opening_prompt_text},
-        {"role": "model", "text": output.reply},
+        {"role": "model", "text": output.reply, "phase": session.current_phase},
     ]
     await db.commit()
     await db.refresh(session)
@@ -184,7 +185,7 @@ async def submit_turn(
     conversation history, apply the agent's live judgment calls (hint
     level, red flag, phase transition), persist the updated session.
     """
-    session = await get_interview_session_or_404(session_id, db)
+    session = await get_interview_session_or_404(session_id, db, for_update=True)
     if session.status != "in_progress":
         raise InterviewSessionNotActiveError(
             f"Interview session {session_id} is {session.status}, not accepting turns"
@@ -197,9 +198,10 @@ async def submit_turn(
 
     transcript = [*session.transcript, {"role": "user", "text": message}]
     history = _transcript_to_history(transcript)
+    candidate_username = extract_github_username(candidate_profile.github_url)
     github_tools_available = (
         session.current_phase == "project_drill_down"
-        and bool(candidate_profile.github_url)
+        and candidate_username is not None
         and session.github_call_count < GITHUB_CALL_BUDGET_PER_SESSION
     )
     retrieved_questions = (
@@ -223,6 +225,7 @@ async def submit_turn(
 
     if github_tools_available:
         call_counter = [0]
+        assert candidate_username is not None  # nosec B101 - checked above
         output = await generate_structured_with_tools(
             task=LLM_TASK_INTERVIEWER,
             contents=history,
@@ -230,7 +233,9 @@ async def submit_turn(
             system_instruction=system_instruction,
             thinking_level="medium",
             tools=GITHUB_TOOLS,
-            tool_dispatch=_counting_dispatch(GITHUB_TOOL_DISPATCH, call_counter),
+            tool_dispatch=_counting_dispatch(
+                build_scoped_github_dispatch(candidate_username), call_counter
+            ),
             max_rounds=GITHUB_TOOL_LOOP_MAX_ROUNDS,
             session_id=session.id,
             db=db,
@@ -281,7 +286,17 @@ async def submit_turn(
         )
         session.hint_counts = hint_counts
 
-    transcript.append({"role": "model", "text": reply})
+    transcript.append(
+        {
+            "role": "model",
+            "text": reply,
+            "phase": session.current_phase,
+            "hint_level": output.hint_level,
+            "red_flag": output.red_flag,
+            "severe_red_flag": output.severe_red_flag,
+            "anxiety_detected": output.anxiety_detected,
+        }
+    )
 
     if session.status == "in_progress" and output.phase_complete:
         next_index = INTERVIEW_PHASES.index(session.current_phase) + 1

@@ -166,7 +166,7 @@ async def extract_structured[T: BaseModel](
             response_text=response.text,
         )
         if on_usage is not None:
-            on_usage(None)
+            on_usage(response.usage_metadata)
         raise GeminiResponseParseError(
             f"Gemini response did not parse into {text_format.__name__}: "
             f"{response.text!r}"
@@ -232,6 +232,16 @@ async def run_tool_loop(
 
         if on_round is not None:
             await on_round(round_number, response, time.monotonic() - round_start)
+
+        if not response.candidates or response.candidates[0].content is None:
+            block_reason = (
+                response.prompt_feedback.block_reason
+                if response.prompt_feedback
+                else None
+            )
+            raise GeminiResponseParseError(
+                f"Gemini returned no usable candidate (block_reason={block_reason})"
+            )
 
         candidate_content = response.candidates[0].content
         function_calls = [

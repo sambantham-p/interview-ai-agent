@@ -123,7 +123,7 @@ async def list_repos(username: str) -> list[dict]:
     default order) - lets the model find the repo matching the project
     under discussion without a pre-existing project-to-repo mapping.
     """
-    data = await _get_json(f"/users/{username}/repos")
+    data = await _get_json(f"/users/{username}/repos?per_page=100")
     return [
         {
             "name": repo["name"],
