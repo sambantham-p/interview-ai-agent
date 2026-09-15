@@ -3,6 +3,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
+from app.constants.logging import REQUEST_ID_HEADER
 from app.main import app
 
 
@@ -18,8 +19,14 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ.setdefault("GEMINI_API_KEY", "test-key")
     os.environ.setdefault("GEMINI_RESUME_PARSING_MODEL", "gemini-3.8-flash")
     os.environ.setdefault("GEMINI_JD_PARSING_MODEL", "gemini-3.8-flash")
+    os.environ.setdefault("GEMINI_INTERVIEWER_MODEL", "gemini-3.8-flash")
+    os.environ.setdefault("GEMINI_JUDGE_MODEL", "gemini-3.1-pro-preview")
+    os.environ.setdefault("ELEVENLABS_API_KEY", "test-key")
+    os.environ.setdefault("ELEVENLABS_VOICE_ID", "test-voice-id")
+    os.environ.setdefault("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
+    os.environ.setdefault("REQUEST_ID_SECRET", "sam-interview-ai-agent")
 
 
 @pytest.fixture()
 def client() -> TestClient:
-    return TestClient(app)
+    return TestClient(app, headers={REQUEST_ID_HEADER: "sam-interview-ai-agent"})

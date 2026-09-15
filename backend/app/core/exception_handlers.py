@@ -5,9 +5,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.elevenlabs_client import ElevenLabsRequestError, ElevenLabsTransientError
 from app.core.gemini_client import GeminiResponseParseError, GeminiTransientError
 from app.core.responses import error_response
 from app.services.jd_service import JobDescriptionExtractionError
+from app.services.resume_service import ResumeExtractionError
 
 
 async def handle_http_exception(
@@ -56,10 +58,39 @@ async def handle_gemini_response_parse_error(
     )
 
 
+async def handle_elevenlabs_transient_error(
+    request: Request, exc: ElevenLabsTransientError
+) -> JSONResponse:
+    return error_response(
+        message="Voice synthesis is temporarily unavailable, try again shortly",
+        status_code=httpx.codes.SERVICE_UNAVAILABLE,
+    )
+
+
+async def handle_elevenlabs_request_error(
+    request: Request, exc: ElevenLabsRequestError
+) -> JSONResponse:
+    # Deliberate stop, not transient - ElevenLabs rejected this specific
+    # request (bad voice_id, a plan-restricted voice, invalid text). Use
+    # its own status_code/message instead of a generic 500.
+    return error_response(message=str(exc), status_code=exc.status_code)
+
+
 async def handle_job_description_extraction_error(
     request: Request, exc: JobDescriptionExtractionError
 ) -> JSONResponse:
     # Deliberate stop, not transient - unusable JD input, don't proceed.
+    return error_response(
+        message=str(exc),
+        status_code=httpx.codes.UNPROCESSABLE_ENTITY,
+    )
+
+
+async def handle_resume_extraction_error(
+    request: Request, exc: ResumeExtractionError
+) -> JSONResponse:
+    # Deliberate stop, not transient - nothing usable extracted, don't
+    # persist an empty profile.
     return error_response(
         message=str(exc),
         status_code=httpx.codes.UNPROCESSABLE_ENTITY,
@@ -80,6 +111,11 @@ def register_exception_handlers(app: FastAPI) -> None:
         GeminiResponseParseError, handle_gemini_response_parse_error
     )
     app.add_exception_handler(
+        ElevenLabsTransientError, handle_elevenlabs_transient_error
+    )
+    app.add_exception_handler(ElevenLabsRequestError, handle_elevenlabs_request_error)
+    app.add_exception_handler(
         JobDescriptionExtractionError, handle_job_description_extraction_error
     )
+    app.add_exception_handler(ResumeExtractionError, handle_resume_extraction_error)
     app.add_exception_handler(Exception, handle_unexpected_exception)

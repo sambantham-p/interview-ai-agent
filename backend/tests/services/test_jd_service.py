@@ -46,6 +46,7 @@ async def test_parse_and_persist_job_description_builds_and_persists_a_jd(
     )
 
     assert jd.role == "Backend Engineer"
+    assert jd.company_name is None
     assert jd.seniority == "senior"
     assert jd.tech_stack == ["Python", "FastAPI"]
     assert jd.coding_assessment_expected is True
@@ -53,6 +54,34 @@ async def test_parse_and_persist_job_description_builds_and_persists_a_jd(
     fake_db.commit.assert_awaited_once()
     fake_db.refresh.assert_awaited_once_with(jd)
     fake_extract_structured.assert_awaited_once()
+
+
+async def test_parse_and_persist_job_description_persists_company_name_when_extracted(
+    mocker: MockerFixture,
+) -> None:
+    extracted = JobDescriptionExtraction(
+        extractable=True,
+        role="Backend Engineer",
+        company_name="Acme Corp",
+        seniority="senior",
+        tech_stack=["Python"],
+        coding_assessment_expected=True,
+    )
+    _mock_gemini(mocker, extracted)
+    fake_db = mocker.AsyncMock()
+    fake_db.add = mocker.MagicMock()
+
+    jd = await parse_and_persist_job_description(
+        full_text=(
+            "Acme Corp is hiring a Senior Backend Engineer to design and "
+            "build scalable backend services. Requirements include strong "
+            "Python experience, PostgreSQL, and distributed systems design."
+        ),
+        short_description=None,
+        db=fake_db,
+    )
+
+    assert jd.company_name == "Acme Corp"
 
 
 async def test_parse_and_persist_job_description_uses_short_description_when_given(
