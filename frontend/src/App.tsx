@@ -4,6 +4,7 @@ import { Navigation } from './components/Navigation'
 import { GuestOnlyRoute } from './components/GuestOnlyRoute'
 import { RequireAuthRoute } from './components/RequireAuthRoute'
 import { ShieldCheckIcon } from './components/ui/ShieldCheckIcon'
+import { MeshGradientBackground } from './components/ui/MeshGradientBackground'
 import { LoginPage } from './features/auth/LoginPage'
 import { SignupPage } from './features/auth/SignupPage'
 import { VerifyOtpPage } from './features/auth/VerifyOtpPage'
@@ -14,6 +15,8 @@ import { ResumeUploadPage } from './features/resume-upload/ResumeUploadPage'
 import { InterviewChatPage } from './features/interview-chat/InterviewChatPage'
 import { CodingChallengePage } from './features/coding-challenge/CodingChallengePage'
 import { ReportPage } from './features/report/ReportPage'
+import { NotFoundPage } from './features/not-found/NotFoundPage'
+import { STARTUP_ROUTE } from './lib/routes'
 
 const HIGHLIGHTS = [
   {
@@ -34,25 +37,9 @@ function HomePage() {
   const { user, isAuthenticated } = useAuth()
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#0a1730]">
+    <div className="min-h-screen flex flex-col bg-hero">
       <div className="relative isolate overflow-hidden flex-1 flex flex-col">
-        {/* Mesh-gradient hero background: brand teal/navy glow orbs over a
-            dark base, plus a faint dot grid for texture - no external
-            image asset, so it never has a broken-image flash. */}
-        <div
-          className="absolute inset-0 -z-10"
-          style={{
-            backgroundColor: '#0a1730',
-            backgroundImage: [
-              'radial-gradient(60% 50% at 15% 10%, rgba(24,169,153,0.35), transparent 60%)',
-              'radial-gradient(50% 45% at 85% 20%, rgba(35,86,161,0.45), transparent 60%)',
-              'radial-gradient(70% 60% at 50% 100%, rgba(18,42,80,0.65), transparent 60%)',
-              'radial-gradient(circle, rgba(255,255,255,0.08) 1px, transparent 1px)',
-            ].join(', '),
-            backgroundSize: 'auto, auto, auto, 28px 28px',
-          }}
-          aria-hidden="true"
-        />
+        <MeshGradientBackground />
 
         <Navigation transparent />
 
@@ -69,8 +56,8 @@ function HomePage() {
           </h1>
 
           <p className="mt-5 max-w-2xl text-lg text-slate-300 text-balance">
-            Prepwise runs a full-loop technical interview driven entirely by your
-            resume and a target job description, then hands you an
+            Prepwise runs a full-loop technical interview driven entirely by
+            your resume and a target job description, then hands you an
             evidence-backed evaluation at the end.
           </p>
 
@@ -107,7 +94,9 @@ function HomePage() {
                 className="rounded-2xl bg-white/4 border border-white/10 p-5 backdrop-blur-sm"
               >
                 <ShieldCheckIcon className="w-5 h-5 mb-3" />
-                <dt className="text-sm font-semibold text-white">{item.title}</dt>
+                <dt className="text-sm font-semibold text-white">
+                  {item.title}
+                </dt>
                 <dd className="mt-1.5 text-sm text-slate-400 leading-relaxed">
                   {item.body}
                 </dd>
@@ -125,7 +114,7 @@ export function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<HomePage />} />
+          <Route path={STARTUP_ROUTE} element={<HomePage />} />
           <Route
             path="/login"
             element={
@@ -206,6 +195,7 @@ export function App() {
               </RequireAuthRoute>
             }
           />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
