@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
+from fastapi.cors import CORSMiddleware
 
 from app.constants.app import API_V1_PREFIX, SERVICE_NAME
 from app.core.db import get_engine
@@ -60,6 +61,18 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestLoggingMiddleware)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://prepwise-dev.up.railway.app",
+        "http://localhost:5173",
+        "http://localhost:8080",
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_headers=["*"],
+)
 
 register_exception_handlers(app)
 
