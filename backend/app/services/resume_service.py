@@ -51,7 +51,7 @@ EXTRACTION_INSTRUCTIONS = (
 
 
 async def parse_and_persist_resume(
-    file_bytes: bytes, db: AsyncSession
+    file_bytes: bytes, db: AsyncSession, *, user_id: str
 ) -> CandidateProfile:
     """Parse a resume PDF via Gemini structured-output extraction and
     persist it as a new CandidateProfile row.
@@ -89,6 +89,7 @@ async def parse_and_persist_resume(
         )
 
     profile = CandidateProfile(
+        user_id=user_id,
         education=[entry.model_dump() for entry in extracted.education],
         experience=[entry.model_dump() for entry in extracted.experience],
         projects=[entry.model_dump() for entry in extracted.projects],

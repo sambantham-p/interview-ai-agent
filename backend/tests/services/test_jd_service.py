@@ -43,6 +43,7 @@ async def test_parse_and_persist_job_description_builds_and_persists_a_jd(
         ),
         short_description=None,
         db=fake_db,
+        user_id="usr_test123",
     )
 
     assert jd.role == "Backend Engineer"
@@ -79,6 +80,7 @@ async def test_parse_and_persist_job_description_persists_company_name_when_extr
         ),
         short_description=None,
         db=fake_db,
+        user_id="usr_test123",
     )
 
     assert jd.company_name == "Acme Corp"
@@ -102,6 +104,7 @@ async def test_parse_and_persist_job_description_uses_short_description_when_giv
         full_text=None,
         short_description="AI Engineer, mid-level, Python and TensorFlow",
         db=fake_db,
+        user_id="usr_test123",
     )
 
     assert jd.role == "AI Engineer"
@@ -130,6 +133,7 @@ async def test_parse_and_persist_job_description_defaults_coding_assessment_to_f
         ),
         short_description=None,
         db=fake_db,
+        user_id="usr_test123",
     )
 
     assert jd.coding_assessment_expected is False
@@ -151,7 +155,10 @@ async def test_parse_and_persist_job_description_raises_when_input_is_not_extrac
         JobDescriptionExtractionError, match="doesn't describe any job role"
     ):
         await parse_and_persist_job_description(
-            full_text="asdkjaslkdj " * 20, short_description=None, db=fake_db
+            full_text="asdkjaslkdj " * 20,
+            short_description=None,
+            db=fake_db,
+            user_id="usr_test123",
         )
 
     fake_db.add.assert_not_called()
@@ -188,6 +195,7 @@ async def test_parse_and_persist_job_description_raises_when_a_required_field_is
             full_text="A real job description with plenty of detail " * 3,
             short_description=None,
             db=fake_db,
+            user_id="usr_test123",
         )
 
     fake_db.add.assert_not_called()
@@ -214,6 +222,7 @@ async def test_parse_and_persist_job_description_rejects_an_unsupported_seniorit
             full_text="A real job description with plenty of detail " * 3,
             short_description=None,
             db=fake_db,
+            user_id="usr_test123",
         )
 
     fake_db.add.assert_not_called()
@@ -235,6 +244,7 @@ async def test_parse_and_persist_job_description_rejects_a_bare_title_as_full_te
             full_text="Senior Software Engineer.",
             short_description=None,
             db=fake_db,
+            user_id="usr_test123",
         )
 
     fake_extract_structured.assert_not_awaited()
@@ -252,7 +262,10 @@ async def test_parse_and_persist_job_description_rejects_a_too_short_short_descr
 
     with pytest.raises(JobDescriptionExtractionError, match="too short"):
         await parse_and_persist_job_description(
-            full_text=None, short_description="Engineer", db=fake_db
+            full_text=None,
+            short_description="Engineer",
+            db=fake_db,
+            user_id="usr_test123",
         )
 
     fake_extract_structured.assert_not_awaited()
@@ -276,7 +289,10 @@ async def test_parse_and_persist_job_description_allows_a_short_short_descriptio
     fake_db.add = mocker.MagicMock()
 
     jd = await parse_and_persist_job_description(
-        full_text=None, short_description="AI Engineer, mid-level", db=fake_db
+        full_text=None,
+        short_description="AI Engineer, mid-level",
+        db=fake_db,
+        user_id="usr_test123",
     )
 
     assert jd.role == "AI Engineer"

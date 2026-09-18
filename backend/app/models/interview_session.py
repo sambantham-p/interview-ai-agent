@@ -4,7 +4,6 @@ from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.constants.app import DEFAULT_USER_ID
 from app.constants.interview import INTERVIEW_PHASES
 from app.models.base import Base
 
@@ -15,13 +14,15 @@ class InterviewSession(Base):
     __tablename__ = "interview_sessions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[str] = mapped_column(String, default=DEFAULT_USER_ID, index=True)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
 
     candidate_profile_id: Mapped[int] = mapped_column(
-        ForeignKey("candidate_profiles.id"), index=True
+        ForeignKey("candidate_profiles.id", ondelete="CASCADE"), index=True
     )
     job_description_id: Mapped[int] = mapped_column(
-        ForeignKey("job_descriptions.id"), index=True
+        ForeignKey("job_descriptions.id", ondelete="CASCADE"), index=True
     )
 
     current_phase: Mapped[str] = mapped_column(String, default=INTERVIEW_PHASES[0])

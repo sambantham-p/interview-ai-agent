@@ -1,4 +1,3 @@
-from app.constants.app import DEFAULT_USER_ID
 from app.constants.interview import INTERVIEW_PHASES
 from app.models.interview_session import SESSION_STATUSES, InterviewSession
 
@@ -28,8 +27,8 @@ def test_table_name_and_columns() -> None:
     }
 
 
-def test_user_id_defaults_to_the_single_hardcoded_user() -> None:
-    assert InterviewSession.__table__.c.user_id.default.arg == DEFAULT_USER_ID
+def test_user_id_has_no_default() -> None:
+    assert InterviewSession.__table__.c.user_id.default is None
 
 
 def test_current_phase_defaults_to_the_first_interview_phase() -> None:
@@ -49,7 +48,15 @@ def test_red_flag_warning_issued_defaults_to_false() -> None:
     assert InterviewSession.__table__.c.red_flag_warning_issued.default.arg is False
 
 
-def test_candidate_profile_id_and_job_description_id_are_foreign_keys() -> None:
+def test_candidate_profile_id_and_job_description_id_are_cascading_foreign_keys() -> (
+    None
+):
+    for col in (
+        InterviewSession.__table__.c.candidate_profile_id,
+        InterviewSession.__table__.c.job_description_id,
+    ):
+        assert {fk.ondelete for fk in col.foreign_keys} == {"CASCADE"}
+
     fk_targets = {
         fk.target_fullname
         for col in (
@@ -59,3 +66,9 @@ def test_candidate_profile_id_and_job_description_id_are_foreign_keys() -> None:
         for fk in col.foreign_keys
     }
     assert fk_targets == {"candidate_profiles.id", "job_descriptions.id"}
+
+
+def test_user_id_is_a_cascading_foreign_key_to_users() -> None:
+    fks = InterviewSession.__table__.c.user_id.foreign_keys
+    assert {fk.target_fullname for fk in fks} == {"users.id"}
+    assert {fk.ondelete for fk in fks} == {"CASCADE"}

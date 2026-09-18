@@ -1,4 +1,3 @@
-from app.constants.app import DEFAULT_USER_ID
 from app.models.job_description import JobDescription
 
 
@@ -18,9 +17,15 @@ def test_table_name_and_columns() -> None:
     }
 
 
-def test_user_id_defaults_to_the_single_hardcoded_user() -> None:
-    assert JobDescription.__table__.c.user_id.default.arg == DEFAULT_USER_ID
+def test_user_id_has_no_default() -> None:
+    assert JobDescription.__table__.c.user_id.default is None
 
 
 def test_coding_assessment_expected_defaults_to_false() -> None:
     assert JobDescription.__table__.c.coding_assessment_expected.default.arg is False
+
+
+def test_user_id_is_a_cascading_foreign_key_to_users() -> None:
+    fks = JobDescription.__table__.c.user_id.foreign_keys
+    assert {fk.target_fullname for fk in fks} == {"users.id"}
+    assert {fk.ondelete for fk in fks} == {"CASCADE"}

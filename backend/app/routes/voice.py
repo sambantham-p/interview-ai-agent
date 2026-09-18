@@ -8,6 +8,8 @@ from app.core.db import get_db
 from app.core.llm_gateway import synthesize_speech
 from app.core.responses import error_response
 from app.core.session_lookup import InterviewSessionNotFoundError
+from app.models.user import User
+from app.routes.auth import get_current_user
 from app.schemas.voice import TextToSpeechRequest
 
 router = APIRouter(tags=["Voice"])
@@ -15,7 +17,9 @@ router = APIRouter(tags=["Voice"])
 
 @router.post("/voice/tts")
 async def text_to_speech(
-    payload: TextToSpeechRequest, db: AsyncSession = Depends(get_db)
+    payload: TextToSpeechRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> Response:
     """Synthesize speech for the Interviewer's reply text via ElevenLabs.
 
@@ -23,7 +27,7 @@ async def text_to_speech(
     """
     try:
         audio_bytes = await synthesize_speech(
-            text=payload.text, session_id=payload.session_id, db=db
+            text=payload.text, session_id=payload.session_id, user_id=user.id, db=db
         )
     except InterviewSessionNotFoundError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)

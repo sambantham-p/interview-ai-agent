@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
 from app.core.responses import success_response
+from app.models.user import User
+from app.routes.auth import get_current_user
 from app.schemas.jd import JobDescriptionInput, JobDescriptionResponse
 from app.services.jd_service import parse_and_persist_job_description
 
@@ -13,7 +15,9 @@ router = APIRouter(tags=["Job Description"])
 
 @router.post("/jd", response_model=JobDescriptionResponse)
 async def submit_job_description(
-    payload: JobDescriptionInput, db: AsyncSession = Depends(get_db)
+    payload: JobDescriptionInput,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """Accept a full JD paste or a short role description, extract it via
     Gemini, persist it, return it.
@@ -22,6 +26,7 @@ async def submit_job_description(
         full_text=payload.full_text,
         short_description=payload.short_description,
         db=db,
+        user_id=user.id,
     )
 
     data = JobDescriptionResponse.model_validate(jd)

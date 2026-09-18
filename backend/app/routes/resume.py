@@ -11,6 +11,8 @@ from app.constants.resume import (
 )
 from app.core.db import get_db
 from app.core.responses import error_response, success_response
+from app.models.user import User
+from app.routes.auth import get_current_user
 from app.schemas.resume import ResumeUploadResponse
 from app.services.resume_service import parse_and_persist_resume
 
@@ -19,7 +21,9 @@ router = APIRouter(tags=["resume"])
 
 @router.post("/resume/upload", response_model=ResumeUploadResponse)
 async def upload_resume(
-    file: UploadFile, db: AsyncSession = Depends(get_db)
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """Accept a resume PDF, parse it via Gemini, persist it, return it.
 
@@ -45,7 +49,7 @@ async def upload_resume(
             status_code=httpx.codes.UNPROCESSABLE_ENTITY,
         )
 
-    profile = await parse_and_persist_resume(contents, db)
+    profile = await parse_and_persist_resume(contents, db, user_id=user.id)
 
     data = ResumeUploadResponse.model_validate(profile)
     return success_response(data=data, status_code=httpx.codes.OK)
