@@ -6,7 +6,10 @@ from pytest_mock import MockerFixture
 from app.core.gemini_client import GeminiResponseParseError, GeminiTransientError
 from app.main import app
 from app.models.job_description import JobDescription
+from app.models.user import User
+from app.routes.auth import get_current_user
 from app.services.jd_service import JobDescriptionExtractionError
+from tests.conftest import TEST_USER_ID
 
 
 def _fake_job_description() -> JobDescription:
@@ -20,15 +23,15 @@ def _fake_job_description() -> JobDescription:
     )
 
 
-def test_submit_jd_rejects_neither_input_mode(client: TestClient) -> None:
-    response = client.post("/api/v1/jd", json={})
+def test_submit_jd_rejects_neither_input_mode(authed_client: TestClient) -> None:
+    response = authed_client.post("/api/v1/jd", json={})
 
     assert response.status_code == 422
     assert response.json()["success"] is False
 
 
-def test_submit_jd_rejects_both_input_modes(client: TestClient) -> None:
-    response = client.post(
+def test_submit_jd_rejects_both_input_modes(authed_client: TestClient) -> None:
+    response = authed_client.post(
         "/api/v1/jd",
         json={"full_text": "full JD text", "short_description": "short version"},
     )
@@ -38,7 +41,7 @@ def test_submit_jd_rejects_both_input_modes(client: TestClient) -> None:
 
 
 def test_submit_jd_returns_persisted_jd_on_success_with_full_text(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
         "app.routes.jd.parse_and_persist_job_description",
@@ -46,7 +49,7 @@ def test_submit_jd_returns_persisted_jd_on_success_with_full_text(
         new_callable=mocker.AsyncMock,
     )
 
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/jd",
         json={"full_text": "We are hiring a Senior Backend Engineer"},
     )
@@ -59,7 +62,7 @@ def test_submit_jd_returns_persisted_jd_on_success_with_full_text(
 
 
 def test_submit_jd_returns_persisted_jd_on_success_with_short_description(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
         "app.routes.jd.parse_and_persist_job_description",
@@ -67,7 +70,7 @@ def test_submit_jd_returns_persisted_jd_on_success_with_short_description(
         new_callable=mocker.AsyncMock,
     )
 
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/jd", json={"short_description": "AI Engineer, mid-level"}
     )
 
@@ -76,7 +79,7 @@ def test_submit_jd_returns_persisted_jd_on_success_with_short_description(
 
 
 def test_submit_jd_returns_422_when_input_is_not_extractable(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     # Unextractable JD input must stop the candidate, not start an interview.
     mocker.patch(
@@ -87,7 +90,7 @@ def test_submit_jd_returns_422_when_input_is_not_extractable(
         new_callable=mocker.AsyncMock,
     )
 
-    response = client.post("/api/v1/jd", json={"full_text": "asdkjaslkdj"})
+    response = authed_client.post("/api/v1/jd", json={"full_text": "asdkjaslkdj"})
 
     assert response.status_code == 422
     body = response.json()
@@ -96,7 +99,7 @@ def test_submit_jd_returns_422_when_input_is_not_extractable(
 
 
 def test_submit_jd_returns_422_for_a_bare_title_submitted_as_full_text(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     # Real service, only Gemini itself mocked - confirms the word-count
     # guard in app/services/jd_service.py runs on the actual request path,
@@ -105,7 +108,7 @@ def test_submit_jd_returns_422_for_a_bare_title_submitted_as_full_text(
         "app.services.jd_service.extract_structured", new_callable=mocker.AsyncMock
     )
 
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/jd", json={"full_text": "Senior Software Engineer."}
     )
 
@@ -115,13 +118,13 @@ def test_submit_jd_returns_422_for_a_bare_title_submitted_as_full_text(
 
 
 def test_submit_jd_returns_422_for_a_too_short_short_description(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     fake_extract_structured = mocker.patch(
         "app.services.jd_service.extract_structured", new_callable=mocker.AsyncMock
     )
 
-    response = client.post("/api/v1/jd", json={"short_description": "Engineer"})
+    response = authed_client.post("/api/v1/jd", json={"short_description": "Engineer"})
 
     assert response.status_code == 422
     assert "too short" in response.json()["error"]["message"]
@@ -129,7 +132,7 @@ def test_submit_jd_returns_422_for_a_too_short_short_description(
 
 
 def test_submit_jd_returns_422_when_required_fields_are_missing(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
         "app.routes.jd.parse_and_persist_job_description",
@@ -139,14 +142,14 @@ def test_submit_jd_returns_422_when_required_fields_are_missing(
         new_callable=mocker.AsyncMock,
     )
 
-    response = client.post("/api/v1/jd", json={"full_text": "a real JD"})
+    response = authed_client.post("/api/v1/jd", json={"full_text": "a real JD"})
 
     assert response.status_code == 422
     assert "Could not determine" in response.json()["error"]["message"]
 
 
 def test_submit_jd_returns_503_for_a_transient_gemini_failure(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
         "app.routes.jd.parse_and_persist_job_description",
@@ -154,14 +157,14 @@ def test_submit_jd_returns_503_for_a_transient_gemini_failure(
         new_callable=mocker.AsyncMock,
     )
 
-    response = client.post("/api/v1/jd", json={"full_text": "a real JD"})
+    response = authed_client.post("/api/v1/jd", json={"full_text": "a real JD"})
 
     assert response.status_code == 503
     assert response.json()["success"] is False
 
 
 def test_submit_jd_returns_502_when_gemini_response_does_not_parse(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
         "app.routes.jd.parse_and_persist_job_description",
@@ -169,7 +172,7 @@ def test_submit_jd_returns_502_when_gemini_response_does_not_parse(
         new_callable=mocker.AsyncMock,
     )
 
-    response = client.post("/api/v1/jd", json={"full_text": "a real JD"})
+    response = authed_client.post("/api/v1/jd", json={"full_text": "a real JD"})
 
     assert response.status_code == 502
     assert response.json()["success"] is False
@@ -183,13 +186,25 @@ def test_submit_jd_returns_500_for_an_unexpected_failure(
         side_effect=RuntimeError("db exploded"),
         new_callable=mocker.AsyncMock,
     )
-    client = TestClient(
-        app,
-        raise_server_exceptions=False,
-        headers={"X-Request-ID": "sam-interview-ai-agent"},
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=TEST_USER_ID,
+        email="authed-test-user@example.com",
+        name="Authed Test User",
+        auth_provider="email",
+        is_verified=True,
+        token_version=0,
+        created_at=datetime.now(UTC),
     )
+    try:
+        authed_client = TestClient(
+            app,
+            raise_server_exceptions=False,
+            headers={"X-Request-ID": "sam-interview-ai-agent"},
+        )
 
-    response = client.post("/api/v1/jd", json={"full_text": "a real JD"})
+        response = authed_client.post("/api/v1/jd", json={"full_text": "a real JD"})
 
-    assert response.status_code == 500
-    assert response.json()["success"] is False
+        assert response.status_code == 500
+        assert response.json()["success"] is False
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

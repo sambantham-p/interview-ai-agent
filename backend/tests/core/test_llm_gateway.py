@@ -258,8 +258,11 @@ async def test_synthesize_speech_returns_audio_and_logs_character_count(
     )
     fake_log_db = _mock_log_session(mocker)
     fake_db = mocker.AsyncMock()
+    fake_db.get.return_value = mocker.MagicMock(user_id="usr_test123")
 
-    result = await synthesize_speech(text="hello there", session_id=5, db=fake_db)
+    result = await synthesize_speech(
+        text="hello there", session_id=5, user_id="usr_test123", db=fake_db
+    )
 
     assert result == b"fake-audio-bytes"
     logged = fake_log_db.add.call_args.args[0]
@@ -284,7 +287,9 @@ async def test_synthesize_speech_raises_for_nonexistent_session_without_calling_
     fake_db.get = mocker.AsyncMock(return_value=None)
 
     try:
-        await synthesize_speech(text="hello", session_id=99999, db=fake_db)
+        await synthesize_speech(
+            text="hello", session_id=99999, user_id="usr_test123", db=fake_db
+        )
         raise AssertionError("expected InterviewSessionNotFoundError to propagate")
     except InterviewSessionNotFoundError:
         pass
@@ -306,7 +311,7 @@ async def test_synthesize_speech_logs_error_and_reraises(
     fake_db = mocker.AsyncMock()
 
     try:
-        await synthesize_speech(text="hello", session_id=None, db=fake_db)
+        await synthesize_speech(text="hello", session_id=None, user_id=None, db=fake_db)
         raise AssertionError("expected RuntimeError to propagate")
     except RuntimeError:
         pass

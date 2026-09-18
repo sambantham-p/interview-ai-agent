@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, Integer, String, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,7 +19,11 @@ class LLMCall(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     task: Mapped[str] = mapped_column(String, index=True)
     model: Mapped[str] = mapped_column(String)
-    session_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    session_id: Mapped[int | None] = mapped_column(
+        ForeignKey("interview_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     prompt: Mapped[str] = mapped_column(String)
     response: Mapped[str] = mapped_column(String)
     prompt_token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)

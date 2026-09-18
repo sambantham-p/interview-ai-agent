@@ -1,0 +1,1 @@
+export const PASSWORD_RESET_EXPIRY_MINUTES = 15

@@ -12,7 +12,6 @@ from app.constants.judge import (
     JUDGE_PROJECT_DEPTH,
     JUDGE_WEIGHTS,
 )
-from app.core.session_lookup import InterviewSessionNotFoundError
 from app.models.interview_session import InterviewSession
 from app.models.job_description import JobDescription
 from app.schemas.judge import JudgeEvidenceItem, JudgeOutput
@@ -102,9 +101,13 @@ def _full_transcript() -> list[dict]:
     ]
 
 
+TEST_USER_ID = "usr_test123"
+
+
 def _fake_session(**overrides) -> InterviewSession:
     defaults = {
         "id": 10,
+        "user_id": TEST_USER_ID,
         "candidate_profile_id": 1,
         "job_description_id": 2,
         "current_phase": "candidate_questions",
@@ -275,7 +278,7 @@ async def test_generate_report_persists_all_five_evaluations_and_aggregates(
         ],
     )
 
-    report = await generate_report(session_id=10, db=fake_db)
+    report = await generate_report(session=session, db=fake_db)
 
     evaluation_judge_names = {e.judge_name for e in added if hasattr(e, "judge_name")}
     assert evaluation_judge_names == {
@@ -311,7 +314,7 @@ async def test_generate_report_skips_coding_and_renormalizes_weights(
         [_judge_output(80), _judge_output(60), _judge_output(90), _judge_output(50)],
     )
 
-    report = await generate_report(session_id=10, db=fake_db)
+    report = await generate_report(session=session, db=fake_db)
 
     assert fake_generate.await_count == 4
     evaluation_judge_names = {e.judge_name for e in added if hasattr(e, "judge_name")}
@@ -341,7 +344,7 @@ async def test_generate_report_caps_attitude_score_on_abusive_language(
         ],
     )
 
-    await generate_report(session_id=10, db=fake_db)
+    await generate_report(session=session, db=fake_db)
 
     attitude_eval = next(
         e for e in added if getattr(e, "judge_name", None) == JUDGE_ATTITUDE
@@ -368,7 +371,7 @@ async def test_generate_report_does_not_cap_attitude_on_ordinary_red_flag_thresh
         ],
     )
 
-    await generate_report(session_id=10, db=fake_db)
+    await generate_report(session=session, db=fake_db)
 
     attitude_eval = next(
         e for e in added if getattr(e, "judge_name", None) == JUDGE_ATTITUDE
@@ -395,7 +398,7 @@ async def test_generate_report_applies_hint_penalty_to_attitude_score(
         ],
     )
 
-    await generate_report(session_id=10, db=fake_db)
+    await generate_report(session=session, db=fake_db)
 
     attitude_eval = next(
         e for e in added if getattr(e, "judge_name", None) == JUDGE_ATTITUDE
@@ -414,19 +417,9 @@ async def test_generate_report_raises_when_session_in_progress(
     fake_generate = _mock_generate_structured(mocker, [])
 
     with pytest.raises(InterviewSessionNotReadyForReportError):
-        await generate_report(session_id=10, db=fake_db)
+        await generate_report(session=session, db=fake_db)
 
     fake_generate.assert_not_awaited()
-
-
-async def test_generate_report_raises_for_unknown_session(
-    mocker: MockerFixture,
-) -> None:
-    fake_db = mocker.AsyncMock()
-    fake_db.get = mocker.AsyncMock(return_value=None)
-
-    with pytest.raises(InterviewSessionNotFoundError):
-        await generate_report(session_id=999, db=fake_db)
 
 
 # --- get_latest_report() / get_evaluations_by_ids() tests ---
@@ -441,7 +434,7 @@ async def test_get_latest_report_raises_when_none_exists(mocker: MockerFixture) 
     fake_db.execute = mocker.AsyncMock(return_value=fake_result)
 
     with pytest.raises(InterviewReportNotFoundError):
-        await get_latest_report(session_id=10, db=fake_db)
+        await get_latest_report(session=session, db=fake_db)
 
 
 async def test_get_latest_report_returns_persisted_report(
@@ -455,7 +448,7 @@ async def test_get_latest_report_returns_persisted_report(
     fake_result.scalar_one_or_none = mocker.MagicMock(return_value=fake_report)
     fake_db.execute = mocker.AsyncMock(return_value=fake_result)
 
-    report = await get_latest_report(session_id=10, db=fake_db)
+    report = await get_latest_report(session=session, db=fake_db)
 
     assert report is fake_report
 

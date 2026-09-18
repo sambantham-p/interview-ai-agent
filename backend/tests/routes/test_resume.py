@@ -6,7 +6,10 @@ from pytest_mock import MockerFixture
 from app.core.gemini_client import GeminiResponseParseError, GeminiTransientError
 from app.main import app
 from app.models.candidate_profile import CandidateProfile
+from app.models.user import User
+from app.routes.auth import get_current_user
 from app.services.resume_service import ResumeExtractionError
+from tests.conftest import TEST_USER_ID
 
 
 def _fake_upload_file() -> tuple[str, tuple[str, bytes, str]]:
@@ -14,9 +17,9 @@ def _fake_upload_file() -> tuple[str, tuple[str, bytes, str]]:
 
 
 def test_upload_resume_rejects_content_without_a_pdf_signature(
-    client: TestClient,
+    authed_client: TestClient,
 ) -> None:
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/resume/upload",
         files={"file": ("resume.txt", b"not a pdf", "text/plain")},
     )
@@ -28,11 +31,11 @@ def test_upload_resume_rejects_content_without_a_pdf_signature(
 
 
 def test_upload_resume_rejects_non_pdf_bytes_even_if_labeled_as_pdf(
-    client: TestClient,
+    authed_client: TestClient,
 ) -> None:
     # The Content-Type header is client-supplied and untrustworthy alone -
     # only the file's own magic bytes decide what it actually is.
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/resume/upload",
         files={"file": ("resume.pdf", b"not actually a pdf", "application/pdf")},
     )
@@ -42,11 +45,11 @@ def test_upload_resume_rejects_non_pdf_bytes_even_if_labeled_as_pdf(
 
 
 def test_upload_resume_rejects_a_pdf_signature_with_no_eof_trailer(
-    client: TestClient,
+    authed_client: TestClient,
 ) -> None:
     # A truncated/malformed file can still start with the PDF magic bytes -
     # the trailing %%EOF marker catches what the header check alone misses.
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/resume/upload",
         files={"file": ("resume.pdf", b"%PDF-1.4 no trailer here", "application/pdf")},
     )
@@ -56,13 +59,13 @@ def test_upload_resume_rejects_a_pdf_signature_with_no_eof_trailer(
 
 
 def test_upload_resume_rejects_a_file_over_the_size_limit(
-    client: TestClient,
+    authed_client: TestClient,
 ) -> None:
     from app.constants.resume import MAX_RESUME_SIZE_BYTES
 
     oversized = b"%PDF-1.4 " + b"a" * MAX_RESUME_SIZE_BYTES + b" %%EOF"
 
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/resume/upload",
         files={"file": ("resume.pdf", oversized, "application/pdf")},
     )
@@ -72,7 +75,7 @@ def test_upload_resume_rejects_a_file_over_the_size_limit(
 
 
 def test_upload_resume_accepts_a_real_pdf_with_a_generic_content_type(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     # A real PDF sent with a missing/generic Content-Type (common from
     # non-browser clients) must not be wrongly rejected.
@@ -91,7 +94,7 @@ def test_upload_resume_accepts_a_real_pdf_with_a_generic_content_type(
         new_callable=mocker.AsyncMock,
     )
 
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/resume/upload",
         files={
             "file": (
@@ -106,7 +109,7 @@ def test_upload_resume_accepts_a_real_pdf_with_a_generic_content_type(
 
 
 def test_upload_resume_returns_persisted_profile_on_success(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     fake_profile = CandidateProfile(
         id=1,
@@ -123,7 +126,9 @@ def test_upload_resume_returns_persisted_profile_on_success(
         new_callable=mocker.AsyncMock,
     )
 
-    response = client.post("/api/v1/resume/upload", files=dict([_fake_upload_file()]))
+    response = authed_client.post(
+        "/api/v1/resume/upload", files=dict([_fake_upload_file()])
+    )
 
     assert response.status_code == 200
     body = response.json()
@@ -134,7 +139,7 @@ def test_upload_resume_returns_persisted_profile_on_success(
 
 
 def test_upload_resume_returns_503_for_a_transient_gemini_failure(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     # GeminiTransientError (network error, 5xx, 429 - see
     # gemini_client.py) is handled app-wide by
@@ -145,14 +150,16 @@ def test_upload_resume_returns_503_for_a_transient_gemini_failure(
         new_callable=mocker.AsyncMock,
     )
 
-    response = client.post("/api/v1/resume/upload", files=dict([_fake_upload_file()]))
+    response = authed_client.post(
+        "/api/v1/resume/upload", files=dict([_fake_upload_file()])
+    )
 
     assert response.status_code == 503
     assert response.json()["success"] is False
 
 
 def test_upload_resume_returns_502_when_gemini_response_does_not_parse(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
         "app.routes.resume.parse_and_persist_resume",
@@ -160,14 +167,16 @@ def test_upload_resume_returns_502_when_gemini_response_does_not_parse(
         new_callable=mocker.AsyncMock,
     )
 
-    response = client.post("/api/v1/resume/upload", files=dict([_fake_upload_file()]))
+    response = authed_client.post(
+        "/api/v1/resume/upload", files=dict([_fake_upload_file()])
+    )
 
     assert response.status_code == 502
     assert response.json()["success"] is False
 
 
 def test_upload_resume_returns_422_when_nothing_usable_was_extracted(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     # A blank/image-only PDF that still passes the magic-bytes check but
     # extracts nothing usable must not silently persist an empty profile.
@@ -180,7 +189,9 @@ def test_upload_resume_returns_422_when_nothing_usable_was_extracted(
         new_callable=mocker.AsyncMock,
     )
 
-    response = client.post("/api/v1/resume/upload", files=dict([_fake_upload_file()]))
+    response = authed_client.post(
+        "/api/v1/resume/upload", files=dict([_fake_upload_file()])
+    )
 
     assert response.status_code == 422
     body = response.json()
@@ -202,13 +213,27 @@ def test_upload_resume_returns_500_for_an_unexpected_failure(
         side_effect=RuntimeError("db exploded"),
         new_callable=mocker.AsyncMock,
     )
-    client = TestClient(
-        app,
-        raise_server_exceptions=False,
-        headers={"X-Request-ID": "sam-interview-ai-agent"},
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=TEST_USER_ID,
+        email="authed-test-user@example.com",
+        name="Authed Test User",
+        auth_provider="email",
+        is_verified=True,
+        token_version=0,
+        created_at=datetime.now(UTC),
     )
+    try:
+        authed_client = TestClient(
+            app,
+            raise_server_exceptions=False,
+            headers={"X-Request-ID": "sam-interview-ai-agent"},
+        )
 
-    response = client.post("/api/v1/resume/upload", files=dict([_fake_upload_file()]))
+        response = authed_client.post(
+            "/api/v1/resume/upload", files=dict([_fake_upload_file()])
+        )
 
-    assert response.status_code == 500
-    assert response.json()["success"] is False
+        assert response.status_code == 500
+        assert response.json()["success"] is False
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
