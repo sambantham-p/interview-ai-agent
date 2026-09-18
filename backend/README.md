@@ -165,7 +165,7 @@ number, and function name attached automatically.
 - **Local dev (running `uvicorn` directly in a terminal):** colored,
   human-readable console output (`structlog.dev.ConsoleRenderer`).
 - **Anywhere else** (output piped/redirected to a file, running under a
-  process manager on Render, etc.): flat JSON — what a log aggregator
+  process manager on Railway, etc.): flat JSON — what a log aggregator
   actually wants to parse:
 
 ```json

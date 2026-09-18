@@ -251,7 +251,7 @@ fill in real values - `.env` itself stays gitignored, as ever:
 
 | Var | Purpose |
 |---|---|
-| `VITE_API_BASE_URL` | Left unset for local dev — `vite.config.ts`'s dev-server proxy forwards `/api/*` to the backend on `:8000`. Set only in production (Render static site env var) to the deployed backend's base URL. |
+| `VITE_API_BASE_URL` | Left unset for local dev — `vite.config.ts`'s dev-server proxy forwards `/api/*` to the backend on `:8000`. Set only in production (Railway web service env var) to the deployed backend's base URL. |
 | `VITE_GOOGLE_CLIENT_ID` | Google OAuth client ID (Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID, "Web application" type) — used by `GoogleSignInButton.tsx` to initialize Google Identity Services. **Must match the backend's `GOOGLE_OAUTH_CLIENT_ID` exactly** — the backend checks the `aud` claim on every Google ID token against its own configured value, so a mismatch here makes every real Google sign-in fail with a 401, silently, until both are set to the same value. Left unset in local dev, `GoogleSignInButton` falls back to a placeholder client ID and Google's real flow won't work — use the dev-only demo sign-in instead (see Authentication below). |
 
 ## Error handling & logging (no direct backend-logger equivalent)
@@ -366,7 +366,7 @@ trades away:
   allows any `19.x.x` ≥ `19.2.8`). Without a committed lockfile, `npm
   install` run on different machines — or days apart — can resolve
   *different* actual versions, including of nested dependencies nobody
-  listed directly. Each environment (your machine, CI, Render's build)
+  listed directly. Each environment (your machine, CI, Railway's build)
   regenerates its own resolution independently.
 - Practical effect right now: low risk, single-developer project, no CI
   pinning a specific lockfile yet. Revisit committing it once that

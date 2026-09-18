@@ -3,8 +3,9 @@ import { PrepwiseLogo } from './ui/PrepwiseLogo'
 import { useAuth } from '../lib/authContext'
 
 interface NavigationProps {
-  /** Renders over a dark hero instead of the default white app bar - see
-   * App.tsx's HomePage, the only place with a dark background behind it. */
+  /** Renders over a dark hero instead of the default white app bar - used
+   * by every page with a dark `bg-hero` background (App.tsx's HomePage,
+   * NotFoundPage). */
   transparent?: boolean
 }
 
