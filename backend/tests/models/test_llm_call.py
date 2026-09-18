@@ -29,3 +29,9 @@ def test_extra_defaults_to_an_empty_dict() -> None:
 def test_session_id_and_error_are_nullable() -> None:
     assert LLMCall.__table__.c.session_id.nullable is True
     assert LLMCall.__table__.c.error.nullable is True
+
+
+def test_session_id_is_a_set_null_foreign_key_to_interview_sessions() -> None:
+    fks = LLMCall.__table__.c.session_id.foreign_keys
+    assert {fk.target_fullname for fk in fks} == {"interview_sessions.id"}
+    assert {fk.ondelete for fk in fks} == {"SET NULL"}

@@ -110,26 +110,36 @@ def _counting_dispatch(
 
 
 async def start_interview(
-    *, candidate_profile_id: int, job_description_id: int, db: AsyncSession
+    *,
+    candidate_profile_id: int,
+    job_description_id: int,
+    user_id: str,
+    db: AsyncSession,
 ) -> InterviewSession:
     """Create a new interview session and generate the opening message
     for phase 1 (Background Check).
 
     One fresh session per call, never a shared instance across
     candidates - each interview gets its own isolated state.
+
+    Both the candidate profile and job description must belong to
+    `user_id` - a mismatch raises the same not-found error as a missing
+    id, so this can't be used to probe another user's profile/JD ids
+    (same IDOR-safe pattern as get_interview_session_or_404).
     """
     candidate_profile = await db.get(CandidateProfile, candidate_profile_id)
-    if candidate_profile is None:
+    if candidate_profile is None or candidate_profile.user_id != user_id:
         raise InterviewSessionNotFoundError(
             f"No candidate profile with id {candidate_profile_id}"
         )
     job_description = await db.get(JobDescription, job_description_id)
-    if job_description is None:
+    if job_description is None or job_description.user_id != user_id:
         raise InterviewSessionNotFoundError(
             f"No job description with id {job_description_id}"
         )
 
     session = InterviewSession(
+        user_id=user_id,
         candidate_profile_id=candidate_profile_id,
         job_description_id=job_description_id,
         current_phase=INTERVIEW_PHASES[0],
@@ -179,13 +189,15 @@ async def start_interview(
 
 
 async def submit_turn(
-    *, session_id: int, message: str, db: AsyncSession
+    *, session_id: int, message: str, user_id: str, db: AsyncSession
 ) -> InterviewSession:
     """Process one candidate turn: call the Interviewer agent with full
     conversation history, apply the agent's live judgment calls (hint
     level, red flag, phase transition), persist the updated session.
     """
-    session = await get_interview_session_or_404(session_id, db, for_update=True)
+    session = await get_interview_session_or_404(
+        session_id, db, user_id=user_id, for_update=True
+    )
     if session.status != "in_progress":
         raise InterviewSessionNotActiveError(
             f"Interview session {session_id} is {session.status}, not accepting turns"

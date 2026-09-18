@@ -36,8 +36,11 @@ async def test_parse_and_persist_resume_builds_and_persists_a_candidate_profile(
     # AsyncSession.add() is sync, unlike commit/refresh
     fake_db.add = mocker.MagicMock()
 
-    profile = await parse_and_persist_resume(b"pdf bytes", fake_db)
+    profile = await parse_and_persist_resume(
+        b"pdf bytes", fake_db, user_id="usr_test123"
+    )
 
+    assert profile.user_id == "usr_test123"
     assert profile.skills == ["Python", "SQL"]
     assert profile.github_url == "https://github.com/example"
     assert profile.education == [
@@ -89,7 +92,7 @@ async def test_parse_and_persist_resume_rejects_a_completely_empty_extraction(
     fake_db.add = mocker.MagicMock()
 
     with pytest.raises(ResumeExtractionError, match="Could not extract"):
-        await parse_and_persist_resume(b"pdf bytes", fake_db)
+        await parse_and_persist_resume(b"pdf bytes", fake_db, user_id="usr_test123")
 
     fake_db.add.assert_not_called()
     fake_db.commit.assert_not_awaited()
@@ -107,7 +110,9 @@ async def test_parse_and_persist_resume_accepts_a_sparse_but_non_empty_extractio
     fake_db = mocker.AsyncMock()
     fake_db.add = mocker.MagicMock()
 
-    profile = await parse_and_persist_resume(b"pdf bytes", fake_db)
+    profile = await parse_and_persist_resume(
+        b"pdf bytes", fake_db, user_id="usr_test123"
+    )
 
     assert profile.skills == ["Python"]
     fake_db.add.assert_called_once_with(profile)

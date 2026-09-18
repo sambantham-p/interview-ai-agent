@@ -290,6 +290,7 @@ async def synthesize_speech(
     *,
     text: str,
     session_id: int | None,
+    user_id: str | None,
     db: AsyncSession,
 ) -> bytes:
     """LLM Gateway entry point for text-to-speech using ElevenLabs.
@@ -299,9 +300,15 @@ async def synthesize_speech(
     no token counts) is deliberate: it provides the per-interview voice
     usage data needed to enforce the voice cost cap by summing character
     counts logged under this session_id.
+
+    When `session_id` is given, `user_id` must belong to that session -
+    enforced by get_interview_session_or_404 the same way as every other
+    session-scoped endpoint, so one candidate can't synthesize speech
+    against another's interview.
     """
     if session_id is not None:
-        await get_interview_session_or_404(session_id, db)
+        assert user_id is not None  # nosec B101
+        await get_interview_session_or_404(session_id, db, user_id=user_id)
 
     settings = get_elevenlabs_settings()
     model = settings.elevenlabs_model_id

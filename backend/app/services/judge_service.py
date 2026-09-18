@@ -28,7 +28,6 @@ from app.constants.judge import (
     RECOMMENDATION_TIERS,
 )
 from app.core.llm_gateway import generate_structured
-from app.core.session_lookup import get_interview_session_or_404
 from app.models.interview_report import InterviewReport
 from app.models.interview_session import InterviewSession
 from app.models.job_description import JobDescription
@@ -221,7 +220,9 @@ async def _run_judge(
     return evaluation
 
 
-async def generate_report(*, session_id: int, db: AsyncSession) -> InterviewReport:
+async def generate_report(
+    *, session: InterviewSession, db: AsyncSession
+) -> InterviewReport:
     """Runs all 5 Judges sequentially (db is a single request-scoped
     AsyncSession, not safe for concurrent Gateway calls), persists each
     JudgeEvaluation, then aggregates into a new InterviewReport row.
@@ -230,11 +231,15 @@ async def generate_report(*, session_id: int, db: AsyncSession) -> InterviewRepo
     ended early for a red-flag threshold or abusive language still needs
     an evaluation report, with that context reflected in the Attitude
     judge's score (see _run_judge).
+
+    Takes an already-fetched, ownership-verified session rather than a
+    session_id - the caller (app/routes/interview.py) already needs the
+    session object itself to build the response, so fetching it a second
+    time here would be a redundant round-trip.
     """
-    session = await get_interview_session_or_404(session_id, db)
     if session.status not in ("completed", "ended_early"):
         raise InterviewSessionNotReadyForReportError(
-            f"Interview session {session_id} is {session.status}, not ready for a report"
+            f"Interview session {session.id} is {session.status}, not ready for a report"
         )
 
     job_description = await db.get(JobDescription, session.job_description_id)
@@ -272,21 +277,25 @@ async def generate_report(*, session_id: int, db: AsyncSession) -> InterviewRepo
     return report
 
 
-async def get_latest_report(*, session_id: int, db: AsyncSession) -> InterviewReport:
+async def get_latest_report(
+    *, session: InterviewSession, db: AsyncSession
+) -> InterviewReport:
     """Fetches the most recently generated report for a session without
     re-running any Judges.
+
+    Takes an already-fetched, ownership-verified session - see
+    generate_report()'s docstring for why.
     """
-    await get_interview_session_or_404(session_id, db)
     result = await db.execute(
         select(InterviewReport)
-        .where(InterviewReport.session_id == session_id)
+        .where(InterviewReport.session_id == session.id)
         .order_by(InterviewReport.created_at.desc())
         .limit(1)
     )
     report = result.scalar_one_or_none()
     if report is None:
         raise InterviewReportNotFoundError(
-            f"No report generated yet for interview session {session_id}"
+            f"No report generated yet for interview session {session.id}"
         )
     return report
 

@@ -32,7 +32,7 @@ def _fake_session(**overrides) -> InterviewSession:
 
 
 def test_start_interview_returns_session_and_opening_reply(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
         "app.routes.interview.start_interview",
@@ -40,7 +40,7 @@ def test_start_interview_returns_session_and_opening_reply(
         return_value=_fake_session(),
     )
 
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/interview/start",
         json={"candidate_profile_id": 1, "job_description_id": 2},
     )
@@ -53,7 +53,7 @@ def test_start_interview_returns_session_and_opening_reply(
 
 
 def test_start_interview_returns_404_when_profile_or_jd_missing(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
         "app.routes.interview.start_interview",
@@ -61,7 +61,7 @@ def test_start_interview_returns_404_when_profile_or_jd_missing(
         side_effect=InterviewSessionNotFoundError("No candidate profile with id 1"),
     )
 
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/interview/start",
         json={"candidate_profile_id": 1, "job_description_id": 2},
     )
@@ -71,7 +71,7 @@ def test_start_interview_returns_404_when_profile_or_jd_missing(
 
 
 def test_turn_returns_reply_and_updated_phase(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
         "app.routes.interview.submit_turn",
@@ -82,7 +82,7 @@ def test_turn_returns_reply_and_updated_phase(
         ),
     )
 
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/interview/10/turn", json={"message": "I studied at XYZ University"}
     )
 
@@ -93,7 +93,7 @@ def test_turn_returns_reply_and_updated_phase(
 
 
 def test_turn_returns_404_when_session_missing(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
         "app.routes.interview.submit_turn",
@@ -101,13 +101,15 @@ def test_turn_returns_404_when_session_missing(
         side_effect=InterviewSessionNotFoundError("No interview session with id 99"),
     )
 
-    response = client.post("/api/v1/interview/99/turn", json={"message": "hello"})
+    response = authed_client.post(
+        "/api/v1/interview/99/turn", json={"message": "hello"}
+    )
 
     assert response.status_code == 404
 
 
 def test_turn_returns_409_when_session_not_active(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
         "app.routes.interview.submit_turn",
@@ -115,13 +117,15 @@ def test_turn_returns_409_when_session_not_active(
         side_effect=InterviewSessionNotActiveError("Interview session 10 is completed"),
     )
 
-    response = client.post("/api/v1/interview/10/turn", json={"message": "hello"})
+    response = authed_client.post(
+        "/api/v1/interview/10/turn", json={"message": "hello"}
+    )
 
     assert response.status_code == 409
 
 
-def test_turn_rejects_empty_message(client: TestClient) -> None:
-    response = client.post("/api/v1/interview/10/turn", json={"message": ""})
+def test_turn_rejects_empty_message(authed_client: TestClient) -> None:
+    response = authed_client.post("/api/v1/interview/10/turn", json={"message": ""})
 
     assert response.status_code == 422
 
@@ -154,7 +158,7 @@ def _fake_report(**overrides) -> InterviewReport:
 
 
 def test_create_report_returns_201_with_full_report(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
         "app.routes.interview.generate_report",
@@ -172,7 +176,7 @@ def test_create_report_returns_201_with_full_report(
         return_value=[_fake_judge_evaluation()],
     )
 
-    response = client.post("/api/v1/interview/10/report")
+    response = authed_client.post("/api/v1/interview/10/report")
 
     assert response.status_code == 201
     body = response.json()
@@ -183,22 +187,27 @@ def test_create_report_returns_201_with_full_report(
 
 
 def test_create_report_returns_404_for_unknown_session(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
-        "app.routes.interview.generate_report",
+        "app.routes.interview.get_interview_session_or_404",
         new_callable=mocker.AsyncMock,
         side_effect=InterviewSessionNotFoundError("No interview session with id 99"),
     )
 
-    response = client.post("/api/v1/interview/99/report")
+    response = authed_client.post("/api/v1/interview/99/report")
 
     assert response.status_code == 404
 
 
 def test_create_report_returns_409_when_session_in_progress(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
+    mocker.patch(
+        "app.routes.interview.get_interview_session_or_404",
+        new_callable=mocker.AsyncMock,
+        return_value=_fake_session(),
+    )
     mocker.patch(
         "app.routes.interview.generate_report",
         new_callable=mocker.AsyncMock,
@@ -207,13 +216,13 @@ def test_create_report_returns_409_when_session_in_progress(
         ),
     )
 
-    response = client.post("/api/v1/interview/10/report")
+    response = authed_client.post("/api/v1/interview/10/report")
 
     assert response.status_code == 409
 
 
 def test_read_report_returns_200_with_persisted_report(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
         "app.routes.interview.get_latest_report",
@@ -231,29 +240,34 @@ def test_read_report_returns_200_with_persisted_report(
         return_value=[_fake_judge_evaluation()],
     )
 
-    response = client.get("/api/v1/interview/10/report")
+    response = authed_client.get("/api/v1/interview/10/report")
 
     assert response.status_code == 200
     assert response.json()["data"]["overall_score"] == 77.5
 
 
 def test_read_report_returns_404_for_unknown_session(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
-        "app.routes.interview.get_latest_report",
+        "app.routes.interview.get_interview_session_or_404",
         new_callable=mocker.AsyncMock,
         side_effect=InterviewSessionNotFoundError("No interview session with id 99"),
     )
 
-    response = client.get("/api/v1/interview/99/report")
+    response = authed_client.get("/api/v1/interview/99/report")
 
     assert response.status_code == 404
 
 
 def test_read_report_returns_404_when_no_report_generated_yet(
-    client: TestClient, mocker: MockerFixture
+    authed_client: TestClient, mocker: MockerFixture
 ) -> None:
+    mocker.patch(
+        "app.routes.interview.get_interview_session_or_404",
+        new_callable=mocker.AsyncMock,
+        return_value=_fake_session(),
+    )
     mocker.patch(
         "app.routes.interview.get_latest_report",
         new_callable=mocker.AsyncMock,
@@ -262,6 +276,6 @@ def test_read_report_returns_404_when_no_report_generated_yet(
         ),
     )
 
-    response = client.get("/api/v1/interview/10/report")
+    response = authed_client.get("/api/v1/interview/10/report")
 
     assert response.status_code == 404

@@ -8,6 +8,8 @@ from app.core.responses import error_response, success_response
 from app.core.session_lookup import get_interview_session_or_404
 from app.models.interview_report import InterviewReport
 from app.models.interview_session import InterviewSession
+from app.models.user import User
+from app.routes.auth import get_current_user
 from app.schemas.interview import (
     InterviewStartRequest,
     InterviewTurnRequest,
@@ -45,7 +47,9 @@ def _turn_response(session: InterviewSession) -> InterviewTurnResponse:
 
 @router.post("/interview/start", response_model=InterviewTurnResponse)
 async def start(
-    payload: InterviewStartRequest, db: AsyncSession = Depends(get_db)
+    payload: InterviewStartRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """Create a new interview session for a candidate profile + job
     description pair, and generate the phase 1 opening message.
@@ -54,6 +58,7 @@ async def start(
         session = await start_interview(
             candidate_profile_id=payload.candidate_profile_id,
             job_description_id=payload.job_description_id,
+            user_id=user.id,
             db=db,
         )
     except InterviewSessionNotFoundError as exc:
@@ -69,11 +74,12 @@ async def turn(
     session_id: int,
     payload: InterviewTurnRequest,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """Submit one candidate turn and get the Interviewer agent's reply."""
     try:
         session = await submit_turn(
-            session_id=session_id, message=payload.message, db=db
+            session_id=session_id, message=payload.message, user_id=user.id, db=db
         )
     except InterviewSessionNotFoundError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)
@@ -104,20 +110,24 @@ async def _report_response(
 
 @router.post("/interview/{session_id}/report", response_model=InterviewReportResponse)
 async def create_report(
-    session_id: int, db: AsyncSession = Depends(get_db)
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """Run all 5 Judge agents over the finished transcript and persist a
     new evaluation report. Allowed for a "completed" or "ended_early"
     session, not "in_progress".
     """
     try:
-        report = await generate_report(session_id=session_id, db=db)
+        session = await get_interview_session_or_404(session_id, db, user_id=user.id)
     except InterviewSessionNotFoundError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)
+
+    try:
+        report = await generate_report(session=session, db=db)
     except InterviewSessionNotReadyForReportError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.CONFLICT)
 
-    session = await get_interview_session_or_404(session_id, db)
     return success_response(
         data=await _report_response(report, session, db),
         status_code=httpx.codes.CREATED,
@@ -126,19 +136,23 @@ async def create_report(
 
 @router.get("/interview/{session_id}/report", response_model=InterviewReportResponse)
 async def read_report(
-    session_id: int, db: AsyncSession = Depends(get_db)
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """Fetch the most recently generated report for a session, without
     re-running the Judges.
     """
     try:
-        report = await get_latest_report(session_id=session_id, db=db)
+        session = await get_interview_session_or_404(session_id, db, user_id=user.id)
     except InterviewSessionNotFoundError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)
+
+    try:
+        report = await get_latest_report(session=session, db=db)
     except InterviewReportNotFoundError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)
 
-    session = await get_interview_session_or_404(session_id, db)
     return success_response(
         data=await _report_response(report, session, db),
         status_code=httpx.codes.OK,

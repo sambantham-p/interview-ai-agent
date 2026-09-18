@@ -44,6 +44,39 @@ class SecuritySettings(BaseSettings):
     request_id_secret: str
 
 
+class AuthSettings(BaseSettings):
+    """Session configuration for app/routes/auth.py.
+
+    `jwt_secret_key` signs every session token issued by /auth/*, the
+    same shared-secret pattern as SecuritySettings.request_id_secret
+    above. `google_oauth_client_id` is the audience every real Google ID
+    token must have been issued for - see verify_google_token()'s aud
+    check, which stops a token minted for a *different* Google app from
+    being replayed against this one.
+    """
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    jwt_secret_key: str
+    jwt_algorithm: str = "HS256"
+    jwt_expiry_minutes: int = 60 * 24 * 7  # 7 days
+    google_oauth_client_id: str
+
+
+class SMTPSettings(BaseSettings):
+    """Outbound SMTP credentials for the registration verification email
+    (app/services/email_service.py).
+    """
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str = "no-reply@prepwise.ai"
+
+
 class GatewaySettings(BaseSettings):
     """Configuration for routing LLM tasks to specific models.
     Defines the model to use for each task or agent role, keeping model
@@ -93,3 +126,13 @@ def get_elevenlabs_settings() -> ElevenLabsSettings:
 @lru_cache
 def get_security_settings() -> SecuritySettings:
     return SecuritySettings()
+
+
+@lru_cache
+def get_auth_settings() -> AuthSettings:
+    return AuthSettings()
+
+
+@lru_cache
+def get_smtp_settings() -> SMTPSettings:
+    return SMTPSettings()

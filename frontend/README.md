@@ -1,23 +1,17 @@
 # interview-ai-agent — frontend
 
-**Status: tooling scaffolded, features not built.** Per the root
-[`CLAUDE.md`](../CLAUDE.md)'s backend-first build order, no frontend
-*feature* code is written until Build Stage 7 — every backend endpoint
-(Stages 1–6) gets built and verified via Swagger UI first, so the API
-contract is stable before real UI is built against it.
-
-**Exception, done ahead of schedule at the user's explicit request:** the
-tooling below — TypeScript, Tailwind, TanStack Query, React Router,
-Vitest, oxlint/Prettier — is installed, configured, and verified
-end-to-end (`npm run typecheck`, `lint`, `test`, `build` all pass; a real
-browser load shows the health-check page correctly). The `features/`
-folder skeleton exists with one route per Interview Phase group, but
-every page except `health-check/` is still an inert placeholder — this is
-setup, not the interview UI. The rest of this document is still a **spec
-to build against** for the actual feature logic: when each backend
-stage's endpoints land, that placeholder page gets replaced with the real
-thing. If a decision here turns out wrong once that happens, update this
-file in the same commit, don't just silently diverge from it.
+FastAPI's backend-first build order (see root [`CLAUDE.md`](../CLAUDE.md))
+meant no frontend *feature* code was written until the API contract was
+stable — tooling (TypeScript, Tailwind, TanStack Query, React Router,
+Vitest, oxlint/Prettier) was scaffolded ahead of schedule and verified via
+the `health-check/` page. **Auth (login, signup, email OTP verification,
+forgot/reset password) is now real, built, and tested** — see
+[Authentication](#authentication) below. Every other page
+(`resume-upload/`, `interview-chat/`, `coding-challenge/`, `report/`) is
+still an inert placeholder, each waiting on its own backend stage's
+endpoints. This document is both a developer guide for what's real today
+and a spec to build against for what isn't — when a placeholder becomes
+real, update this file in the same commit, don't silently diverge from it.
 
 ## Tech stack
 
@@ -26,12 +20,11 @@ file in the same commit, don't just silently diverge from it.
 | Framework | React 19 (already scaffolded) | |
 | Build tool | Vite (already scaffolded) | |
 | Language | **TypeScript** | Type-checks the frontend against the backend's response envelope (`{success, status, status_code, data, error}` — see `backend/README.md`) at compile time instead of finding contract drift as a runtime bug in the browser. |
-| Styling | **Tailwind CSS** | Utility classes colocated with markup — no separate `.css`/`.module.css` file per component to keep in sync as the UI grows across 6+ distinct pages (upload, chat, coding editor, report, ...). |
-| Server state / data fetching | **TanStack Query** | Handles caching, loading/error state, and polling in one hook each — this project genuinely needs caching (report data), polling (coding-challenge Judge0 result isn't instant), and one-shot mutations (resume upload), not just simple one-off fetches. See the comparison below for why this beat plain `fetch` and Redux Toolkit. |
-| Routing | **React Router** | Standard for a multi-page SPA (upload → chat → coding challenge → report). Not deeply debated — this project's routing needs (a handful of top-level pages, no nested-loader complexity) don't call for TanStack Router's extra data-loading machinery. |
+| Styling | **Tailwind CSS** | Utility classes colocated with markup — no separate `.css`/`.module.css` file per component to keep in sync as the UI grows across 6+ distinct pages (upload, chat, report, ...). |
+| Server state / data fetching | **TanStack Query** | Handles caching, loading/error state, and one-shot mutations in one hook each — this project genuinely needs caching (report data, reused across the dashboard and report page) and mutations (resume upload, chat turns), not just simple one-off fetches. See the comparison below for why this beat plain `fetch` and Redux Toolkit. |
+| Routing | **React Router** | Standard for a multi-page SPA (upload → interview chat → report). Not deeply debated — this project's routing needs (a handful of top-level pages, no nested-loader complexity) don't call for TanStack Router's extra data-loading machinery. |
 | HTTP client | Native `fetch`, wrapped in one thin `lib/api.ts` client | No axios — same "minimal dependency count" principle the backend follows with plain `httpx` instead of provider SDKs. `fetch` + a small wrapper that unwraps the envelope and throws on `error` is all `TanStack Query`'s `queryFn`/`mutationFn` need. |
 | Streaming (chat replies) | `fetch` + `ReadableStream`, or `EventSource` (SSE) | Matches the backend's streaming Gateway (`backend/README.md`'s LLM Gateway) — the Interviewer's replies arrive token-by-token, same as `curl`-verified in Stage 2. |
-| Code editor (Stage 7 coding challenge only) | `@monaco-editor/react` | Not installed yet — only needed once the coding-challenge page is actually built. |
 | Testing | **Vitest** + **React Testing Library** + `@testing-library/user-event` + `jsdom` | Vitest is Vite's native test runner (same config, same transform pipeline — no separate Jest/Babel setup to maintain). Mirrors the backend's `pytest` discipline: tests alongside each component, not batched at the end. |
 | Linting | `oxlint` (already scaffolded) | Rust-based, near-instant, already configured for `react`/`oxc` rules in `.oxlintrc.json`. |
 | Formatting | Prettier | `oxlint` is lint-only (no stable formatter yet as of this writing) — same split the backend doesn't need (`ruff` does both), so Prettier fills the formatting half here. |
@@ -43,18 +36,17 @@ in the abstract:
 
 - **Plain `fetch` + custom hooks:** zero dependencies, but the
   loading/error/cancel-on-unmount plumbing gets hand-written on every
-  page that fetches something (resume upload, chat, submission polling,
-  report — four times), and there's no shared cache if two components
-  need the same data.
+  page that fetches something (resume upload, chat, report — three
+  times), and there's no shared cache if two components need the same
+  data.
 - **Redux Toolkit + RTK Query:** this project's state is almost entirely
-  *server* state (candidate profile, transcript, submission result,
-  report) — exactly what RTK Query already covers, making the Redux
-  store/slice/`Provider` boilerplate around it dead weight nothing here
-  needs.
-- **TanStack Query (chosen):** `refetchInterval` gives the coding-challenge
-  polling loop in one line; `queryKey`-based caching gives the report page
-  its cache for free; no global store to configure for state that isn't
-  global to begin with.
+  *server* state (candidate profile, transcript, report) — exactly what
+  RTK Query already covers, making the Redux store/slice/`Provider`
+  boilerplate around it dead weight nothing here needs.
+- **TanStack Query (chosen):** `queryKey`-based caching gives the report
+  page its cache for free (report generation is a synchronous request,
+  not a background job — no polling needed anywhere in this app); no
+  global store to configure for state that isn't global to begin with.
 
 Client-only UI state (a form field, a modal's open/closed flag) stays
 plain `useState`/`useContext` — don't reach for a global state library for
@@ -72,32 +64,53 @@ deletable as one unit:
 frontend/                            # ✓ = real, built and verified; everything else is a placeholder
 ├── src/
 │   ├── main.tsx                   # ✓ entry point — QueryClientProvider + RootErrorBoundary + App
-│   ├── App.tsx                    # ✓ React Router route table
+│   ├── App.tsx                    # ✓ React Router route table (auth + placeholder routes)
 │   ├── app/
 │   │   └── queryClient.ts         # ✓ one shared TanStack QueryClient instance
 │   ├── features/
-│   │   ├── health-check/          # ✓ REAL — proves the whole chain end-to-end, not a placeholder
+│   │   ├── health-check/          # ✓ REAL — proves the whole chain end-to-end
 │   │   │   ├── HealthStatus.tsx       #   renders GET /health via useHealthCheck
 │   │   │   ├── useHealthCheck.ts      #   TanStack Query wrapping api.get('/health')
 │   │   │   └── HealthStatus.test.tsx
+│   │   ├── auth/                  # ✓ REAL — see Authentication below for the full flow
+│   │   │   ├── AuthLayout.tsx         #   shared two-panel shell (brand story + form card)
+│   │   │   ├── LoginPage.tsx          #   /login
+│   │   │   ├── SignupPage.tsx         #   /signup
+│   │   │   ├── VerifyOtpPage.tsx      #   /verify-email (post-signup OTP)
+│   │   │   ├── ForgotPasswordPage.tsx #   /forgot-password
+│   │   │   ├── ResetCodePage.tsx      #   /reset-password/verify
+│   │   │   ├── NewPasswordPage.tsx    #   /reset-password/new
+│   │   │   └── AuthPages.test.tsx     #   covers every page above + PasswordStrengthMeter/OtpDigitBoxes
 │   │   ├── resume-upload/         # placeholder — Interview setup: resume PDF + JD input
 │   │   │   └── ResumeUploadPage.tsx   #   real useUploadResume.ts mutation lands with Stage 1's
 │   │   │                              #   POST /candidates/resume endpoint
 │   │   ├── interview-chat/        # placeholder — Phases 1,2,3,5,6,7, one continuous view
 │   │   │   └── InterviewChatPage.tsx  #   real useChatStream.ts (ReadableStream/SSE) lands with
 │   │   │                              #   Stage 2's chat-turn endpoints
-│   │   ├── coding-challenge/      # placeholder — Phase 4, Monaco editor + timer
-│   │   │   └── CodingChallengePage.tsx #  real useSubmission.ts (mutation + polling useQuery)
-│   │   │                              #   lands with Stage 4's orchestrator
+│   │   ├── coding-challenge/      # placeholder — Phase 4, spoken/text discussion only,
+│   │   │   └── CodingChallengePage.tsx #  no editor/execution — folds into interview-chat's
+│   │   │                              #   chat-turn flow, same shape as every other phase
 │   │   └── report/                # placeholder — final evidence-backed report view
-│   │       └── ReportPage.tsx         #   real useReport.ts (cached useQuery) lands with
-│   │                                  #   Stage 5's report endpoint
+│   │       └── ReportPage.tsx         #   real useReport.ts (cached useQuery) wired once
+│   │                                  #   Stage 5 builds it, against the already-built
+│   │                                  #   Stage 4 report endpoint
 │   ├── components/
-│   │   └── RootErrorBoundary.tsx  # ✓ root-level render-crash fallback (see Error handling below)
+│   │   ├── Navigation.tsx         # ✓ top nav — signed-in profile menu / sign-in+sign-up links
+│   │   ├── RootErrorBoundary.tsx  # ✓ root-level render-crash fallback (see Error handling below)
+│   │   └── ui/                    # ✓ shared, presentational, no feature imports these back
+│   │       ├── Button.tsx / Input.tsx           #   primitives (variants, isPassword show/hide)
+│   │       ├── GoogleSignInButton.tsx / GoogleIcon.tsx
+│   │       ├── OtpDigitBoxes.tsx                #   6-digit code input, shared by signup + reset OTP
+│   │       ├── PasswordStrengthMeter.tsx        #   4-rule strength bar (signup)
+│   │       ├── PrepwiseLogo.tsx / ShieldCheckIcon.tsx
 │   ├── lib/
-│   │   └── api.ts                 # ✓ fetch wrapper: unwraps {success, data, error}, throws on error
+│   │   ├── api.ts                 # ✓ fetch wrapper: unwraps {success, data, error}, throws on error
+│   │   ├── authContext.tsx        # ✓ AuthProvider/useAuth — session state, all /auth/* calls
+│   │   └── passwordRules.ts       # ✓ checkPasswordStrength() — mirrors backend's password rules,
+│   │                              #   shared by PasswordStrengthMeter and NewPasswordPage
 │   ├── types/
-│   │   └── api.ts                 # ✓ TS types mirroring backend/app/schemas/response.py
+│   │   ├── api.ts                 # ✓ TS types mirroring backend/app/schemas/response.py
+│   │   └── auth.ts                # ✓ TS types mirroring backend/app/schemas/auth.py
 │   ├── test/
 │   │   └── setup.ts               # ✓ vitest setup — @testing-library/jest-dom matchers
 │   └── index.css                  # ✓ `@import "tailwindcss"` — no hand-written global CSS beyond this
@@ -166,17 +179,80 @@ export function useReport(sessionId: string) {
 }
 ```
 
+## Authentication
+
+`lib/authContext.tsx`'s `AuthProvider`/`useAuth()` wraps the whole app
+(mounted in `App.tsx`) and is the only thing that talks to the backend's
+`/auth/*` endpoints — no page calls `api.post('/auth/...')` directly.
+Session (`user` + JWT `token`) persists to `localStorage`
+(`prepwise_user`/`prepwise_token`) so a page refresh doesn't sign the
+candidate out; it's restored once on mount.
+
+**Routes:**
+
+| Route | Page | Backend endpoint |
+|---|---|---|
+| `/login` | `LoginPage` | `POST /auth/login`, `POST /auth/google` |
+| `/signup` | `SignupPage` | `POST /auth/register`, `POST /auth/google` |
+| `/verify-email` | `VerifyOtpPage` | `POST /auth/verify-otp`, `POST /auth/resend-otp` |
+| `/forgot-password` | `ForgotPasswordPage` | `POST /auth/forgot-password` |
+| `/reset-password/verify` | `ResetCodePage` | `POST /auth/verify-reset-code` |
+| `/reset-password/new` | `NewPasswordPage` | `POST /auth/reset-password` |
+
+**Sign-up → verify flow:** `SignupPage` calls `registerWithEmail`, then
+navigates to `/verify-email?email=...` — the email is a fine URL param
+(not a secret), but the OTP code the backend echoes back in local dev
+(`dev_otp`, see below) travels via React Router **navigation state**
+(`navigate(path, { state: { devOtp } })`), not the URL — a verification
+code shouldn't end up in browser history or a server access log, even
+though the backend only ever populates it in `ENVIRONMENT=local`. The
+forgot-password flow (`ForgotPasswordPage` → `ResetCodePage` →
+`NewPasswordPage`) follows the same pattern: `dev_otp` and the
+short-lived `reset_token` both travel as router state, never as a query
+param.
+
+**Dev-only Google sign-in shortcut:** `GoogleSignInButton.tsx` tries the
+real Google Identity Services `prompt()` flow first; if `window.google`
+isn't available (script blocked, or a click racing the script's `async`
+load) it falls back to signing in as a hardcoded demo account
+(`alex.chen@gmail.com`) — but **only** when `import.meta.env.DEV` is
+true. That's a Vite build-time constant: the whole fallback branch is
+dead-code-eliminated from a production build (verified by grepping
+`dist/assets/*.js` for the demo email after a real `npm run build` — zero
+hits). The backend independently rejects the resulting `"dev-token"`
+credential outside `ENVIRONMENT=local` too (`auth_service.py`'s
+`dev_shortcuts_allowed()`) — two independent gates, not one relying on
+the other.
+
+**`dev_otp` banners:** `VerifyOtpPage` and `ResetCodePage` both show a
+"Dev code auto-filled" banner when `devOtp` is present in router state,
+with a one-click "Verify now"/"Continue now" button — purely a local-dev
+convenience so you don't have to read the code out of a log line. It's
+`null`/absent whenever the backend's `ENVIRONMENT` isn't `local`, so this
+banner never renders outside local dev.
+
+**Password rules:** `lib/passwordRules.ts`'s `checkPasswordStrength()`
+mirrors `backend/app/core/security.py`'s `validate_password_strength()` —
+same four rules (8+ chars, upper+lower, a number, a special character).
+There's no shared source of truth across the language boundary, so if the
+backend's rules ever change, this needs a matching manual update — noted
+here so it isn't missed.
+
 ## Env vars
 
 Vite only exposes env vars prefixed `VITE_` to client code (via
 `import.meta.env.VITE_...`) — anything without that prefix is a build-time
 Node var, invisible to the browser bundle, which is also why secrets never
 belong here: **nothing** in `frontend/.env` should be a real API key
-(OpenAI/ElevenLabs/Judge0 keys stay server-side in `backend/.env`, never
-shipped to the browser). Realistically this file will only ever need
-something like `VITE_API_BASE_URL`. Mirror the backend's pattern once
-real vars exist: commit a `.env.example` with placeholder values, gitignore
-the real `.env`.
+(Gemini/ElevenLabs/GitHub keys, or the backend's `JWT_SECRET_KEY`, stay
+server-side in `backend/.env`, never shipped to the browser). `.env.example`
+now documents both real vars auth needs (below); copy it to `.env` and
+fill in real values - `.env` itself stays gitignored, as ever:
+
+| Var | Purpose |
+|---|---|
+| `VITE_API_BASE_URL` | Left unset for local dev — `vite.config.ts`'s dev-server proxy forwards `/api/*` to the backend on `:8000`. Set only in production (Render static site env var) to the deployed backend's base URL. |
+| `VITE_GOOGLE_CLIENT_ID` | Google OAuth client ID (Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID, "Web application" type) — used by `GoogleSignInButton.tsx` to initialize Google Identity Services. **Must match the backend's `GOOGLE_OAUTH_CLIENT_ID` exactly** — the backend checks the `aud` claim on every Google ID token against its own configured value, so a mismatch here makes every real Google sign-in fail with a 401, silently, until both are set to the same value. Left unset in local dev, `GoogleSignInButton` falls back to a placeholder client ID and Google's real flow won't work — use the dev-only demo sign-in instead (see Authentication below). |
 
 ## Error handling & logging (no direct backend-logger equivalent)
 
@@ -212,17 +288,21 @@ UX has no room for a white screen mid-interview):
   alternatives) — this is what actually ships browser errors somewhere
   you can see them, the closest real equivalent to the backend's logging
   table. **Not needed now** — this is a `Pre-Deployment Checklist`-shaped
-  concern (root `CLAUDE.md`), i.e. fine to add at Stage 8 once this is
-  exposed beyond local testing, not a Stage 7 blocker.
+  concern (root `CLAUDE.md`), i.e. fine to add at Stage 6 (Deployment)
+  once this is exposed beyond local testing, not a Stage 5 blocker.
 
 ## Testing
 
 Same discipline as the backend's `pytest` — tests written alongside each
 component, not batched at the end (see root `CLAUDE.md`'s Testing
 Discipline section, which applies project-wide, not just to `backend/`).
-`health-check/HealthStatus.test.tsx` is the first real example of this —
-every placeholder page picks up its own colocated test once it gets real
-logic.
+`health-check/HealthStatus.test.tsx` was the first real example of this;
+`features/auth/AuthPages.test.tsx` is the second — one file covering all
+six auth pages plus `PasswordStrengthMeter`/`OtpDigitBoxes`/
+`checkPasswordStrength`, since they share enough setup (`AuthProvider` +
+`MemoryRouter`) that colocated-but-separate files would mostly duplicate
+that scaffolding. Every remaining placeholder page picks up its own
+colocated test once it gets real logic.
 
 ```bash
 npm run test          # vitest run
@@ -254,6 +334,8 @@ npm run format:check    # verify formatting without changing files
 ```bash
 cd frontend
 npm install
+cp .env.example .env   # fill in VITE_GOOGLE_CLIENT_ID for real Google sign-in
+                        #   (or skip it and use the dev-only demo sign-in, see Authentication)
 npm run dev         # http://localhost:5173 — proxies /api/* to the
                      #   backend on :8000 (vite.config.ts), so start the
                      #   backend too (see backend/README.md) to see the
@@ -263,6 +345,15 @@ npm run test         # vitest run
 npm run build        # tsc -b && vite build → dist/
 npm run preview      # serve the production build locally
 ```
+
+**To exercise the login/signup flow locally**, the backend needs its own
+`.env` set up too (see `backend/README.md`) — specifically
+`JWT_SECRET_KEY` (required, no default) and `ENVIRONMENT=local` (the
+default if unset is `production`, which turns off the `dev_otp`
+banners and the demo Google sign-in — see Authentication above). Real
+email delivery needs `SMTP_*` vars filled in; left unset, the backend
+logs the OTP instead of emailing it, which is what the `dev_otp` banner
+surfaces in the UI.
 
 ## `package-lock.json` is gitignored
 

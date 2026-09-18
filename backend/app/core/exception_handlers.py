@@ -8,6 +8,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.elevenlabs_client import ElevenLabsRequestError, ElevenLabsTransientError
 from app.core.gemini_client import GeminiResponseParseError, GeminiTransientError
 from app.core.responses import error_response
+from app.core.security import InvalidSessionTokenError
 from app.services.jd_service import JobDescriptionExtractionError
 from app.services.resume_service import ResumeExtractionError
 
@@ -97,6 +98,13 @@ async def handle_resume_extraction_error(
     )
 
 
+async def handle_invalid_session_token_error(
+    request: Request, exc: InvalidSessionTokenError
+) -> JSONResponse:
+    # Raised from inside a FastAPI dependency (get_current_user)
+    return error_response(message=str(exc), status_code=httpx.codes.UNAUTHORIZED)
+
+
 async def handle_unexpected_exception(request: Request, exc: Exception) -> JSONResponse:
     return error_response(
         message="Internal server error", status_code=httpx.codes.INTERNAL_SERVER_ERROR
@@ -118,4 +126,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         JobDescriptionExtractionError, handle_job_description_extraction_error
     )
     app.add_exception_handler(ResumeExtractionError, handle_resume_extraction_error)
+    app.add_exception_handler(
+        InvalidSessionTokenError, handle_invalid_session_token_error
+    )
     app.add_exception_handler(Exception, handle_unexpected_exception)

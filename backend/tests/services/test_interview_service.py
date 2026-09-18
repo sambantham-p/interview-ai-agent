@@ -23,21 +23,27 @@ from app.services.interview_service import (
     submit_turn,
 )
 
+TEST_USER_ID = "usr_test123"
 
-def _fake_candidate_profile() -> CandidateProfile:
-    return CandidateProfile(
-        id=1,
-        education=[],
-        experience=[],
-        projects=[{"name": "Foo"}],
-        skills=["Python"],
-        github_url=None,
-    )
+
+def _fake_candidate_profile(**overrides) -> CandidateProfile:
+    defaults = {
+        "id": 1,
+        "user_id": TEST_USER_ID,
+        "education": [],
+        "experience": [],
+        "projects": [{"name": "Foo"}],
+        "skills": ["Python"],
+        "github_url": None,
+    }
+    defaults.update(overrides)
+    return CandidateProfile(**defaults)
 
 
 def _fake_job_description(**overrides) -> JobDescription:
     defaults = {
         "id": 2,
+        "user_id": TEST_USER_ID,
         "role": "Backend Engineer",
         "company_name": None,
         "seniority": "senior",
@@ -51,6 +57,7 @@ def _fake_job_description(**overrides) -> JobDescription:
 def _fake_session(**overrides) -> InterviewSession:
     defaults = {
         "id": 10,
+        "user_id": TEST_USER_ID,
         "candidate_profile_id": 1,
         "job_description_id": 2,
         "current_phase": INTERVIEW_PHASES[0],
@@ -117,7 +124,7 @@ async def test_start_interview_creates_session_and_opening_reply(
     )
 
     session = await start_interview(
-        candidate_profile_id=1, job_description_id=2, db=fake_db
+        candidate_profile_id=1, job_description_id=2, user_id=TEST_USER_ID, db=fake_db
     )
 
     assert session.current_phase == INTERVIEW_PHASES[0]
@@ -164,7 +171,7 @@ async def test_start_interview_prefetches_company_research_when_company_name_set
     )
 
     session = await start_interview(
-        candidate_profile_id=1, job_description_id=2, db=fake_db
+        candidate_profile_id=1, job_description_id=2, user_id=TEST_USER_ID, db=fake_db
     )
 
     assert session.company_research == "Acme makes widgets."
@@ -207,7 +214,7 @@ async def test_start_interview_skips_company_research_when_no_company_name(
     )
 
     session = await start_interview(
-        candidate_profile_id=1, job_description_id=2, db=fake_db
+        candidate_profile_id=1, job_description_id=2, user_id=TEST_USER_ID, db=fake_db
     )
 
     assert session.company_research is None
@@ -249,7 +256,7 @@ async def test_start_interview_continues_when_company_research_fails(
     )
 
     session = await start_interview(
-        candidate_profile_id=1, job_description_id=2, db=fake_db
+        candidate_profile_id=1, job_description_id=2, user_id=TEST_USER_ID, db=fake_db
     )
 
     assert session.company_research is None
@@ -262,7 +269,12 @@ async def test_start_interview_raises_when_candidate_profile_missing(
     fake_db = _mock_db(mocker, get_side_effect=lambda model, _id: None)
 
     with pytest.raises(InterviewSessionNotFoundError, match="candidate profile"):
-        await start_interview(candidate_profile_id=1, job_description_id=2, db=fake_db)
+        await start_interview(
+            candidate_profile_id=1,
+            job_description_id=2,
+            user_id=TEST_USER_ID,
+            db=fake_db,
+        )
 
 
 async def test_start_interview_raises_when_job_description_missing(
@@ -276,14 +288,21 @@ async def test_start_interview_raises_when_job_description_missing(
     fake_db = _mock_db(mocker, get_side_effect=get_side_effect)
 
     with pytest.raises(InterviewSessionNotFoundError, match="job description"):
-        await start_interview(candidate_profile_id=1, job_description_id=2, db=fake_db)
+        await start_interview(
+            candidate_profile_id=1,
+            job_description_id=2,
+            user_id=TEST_USER_ID,
+            db=fake_db,
+        )
 
 
 async def test_submit_turn_raises_when_session_missing(mocker: MockerFixture) -> None:
     fake_db = _mock_db(mocker, get_side_effect=lambda model, _id: None)
 
     with pytest.raises(InterviewSessionNotFoundError):
-        await submit_turn(session_id=99, message="hello", db=fake_db)
+        await submit_turn(
+            session_id=99, message="hello", user_id=TEST_USER_ID, db=fake_db
+        )
 
 
 async def test_submit_turn_raises_when_session_not_in_progress(
@@ -293,7 +312,9 @@ async def test_submit_turn_raises_when_session_not_in_progress(
     fake_db = _mock_db(mocker, get_side_effect=lambda model, _id: session)
 
     with pytest.raises(InterviewSessionNotActiveError):
-        await submit_turn(session_id=10, message="hello", db=fake_db)
+        await submit_turn(
+            session_id=10, message="hello", user_id=TEST_USER_ID, db=fake_db
+        )
 
 
 async def _db_for_turn(
@@ -340,7 +361,9 @@ async def test_submit_turn_passes_unasked_pool_questions_and_marks_them_asked(
         ),
     )
 
-    updated = await submit_turn(session_id=10, message="answer", db=fake_db)
+    updated = await submit_turn(
+        session_id=10, message="answer", user_id=TEST_USER_ID, db=fake_db
+    )
 
     system_instruction = fake_generate.call_args.kwargs["system_instruction"]
     assert "What is ACID?" in system_instruction
@@ -370,7 +393,9 @@ async def test_submit_turn_never_reoffers_a_question_used_in_an_earlier_phase(
         ),
     )
 
-    updated = await submit_turn(session_id=10, message="answer", db=fake_db)
+    updated = await submit_turn(
+        session_id=10, message="answer", user_id=TEST_USER_ID, db=fake_db
+    )
 
     system_instruction = fake_generate.call_args.kwargs["system_instruction"]
     assert "What is ACID?" not in system_instruction
@@ -399,7 +424,7 @@ async def test_submit_turn_injects_company_research_in_career_motivation_phase(
         ),
     )
 
-    await submit_turn(session_id=10, message="answer", db=fake_db)
+    await submit_turn(session_id=10, message="answer", user_id=TEST_USER_ID, db=fake_db)
 
     system_instruction = fake_generate.call_args.kwargs["system_instruction"]
     assert "Acme Corp recently launched a new product line." in system_instruction
@@ -423,7 +448,7 @@ async def test_submit_turn_omits_company_research_outside_those_phases(
         ),
     )
 
-    await submit_turn(session_id=10, message="answer", db=fake_db)
+    await submit_turn(session_id=10, message="answer", user_id=TEST_USER_ID, db=fake_db)
 
     system_instruction = fake_generate.call_args.kwargs["system_instruction"]
     assert "Acme Corp recently launched a new product line." not in system_instruction
@@ -456,10 +481,14 @@ async def test_submit_turn_reuses_the_same_batch_across_turns_in_one_phase(
         ),
     )
 
-    first = await submit_turn(session_id=10, message="answer one", db=fake_db)
+    first = await submit_turn(
+        session_id=10, message="answer one", user_id=TEST_USER_ID, db=fake_db
+    )
     assert first.asked_question_ids == {"technical_interview": [1, 2, 3]}
 
-    second = await submit_turn(session_id=10, message="answer two", db=fake_db)
+    second = await submit_turn(
+        session_id=10, message="answer two", user_id=TEST_USER_ID, db=fake_db
+    )
     assert second.asked_question_ids == {"technical_interview": [1, 2, 3]}
 
 
@@ -487,7 +516,9 @@ async def test_submit_turn_uses_github_tools_when_phase_is_project_drill_down_an
         ),
     )
 
-    await submit_turn(session_id=10, message="It's a FastAPI app", db=fake_db)
+    await submit_turn(
+        session_id=10, message="It's a FastAPI app", user_id=TEST_USER_ID, db=fake_db
+    )
 
     fake_generate_with_tools.assert_awaited_once()
     fake_generate_plain.assert_not_awaited()
@@ -524,7 +555,9 @@ async def test_submit_turn_skips_github_tools_once_budget_is_exhausted(
         ),
     )
 
-    await submit_turn(session_id=10, message="tell me more", db=fake_db)
+    await submit_turn(
+        session_id=10, message="tell me more", user_id=TEST_USER_ID, db=fake_db
+    )
 
     fake_generate_plain.assert_awaited_once()
     fake_generate_with_tools.assert_not_awaited()
@@ -559,7 +592,9 @@ async def test_submit_turn_adds_actual_github_calls_made_to_the_session_counter(
         "app.core.github_client.list_repo_files", new_callable=mocker.AsyncMock
     )
 
-    updated = await submit_turn(session_id=10, message="show me the repo", db=fake_db)
+    updated = await submit_turn(
+        session_id=10, message="show me the repo", user_id=TEST_USER_ID, db=fake_db
+    )
 
     assert updated.github_call_count == 5  # 3 already + 2 made this turn
 
@@ -583,7 +618,9 @@ async def test_submit_turn_skips_github_tools_when_no_github_url(
         ),
     )
 
-    await submit_turn(session_id=10, message="It's a FastAPI app", db=fake_db)
+    await submit_turn(
+        session_id=10, message="It's a FastAPI app", user_id=TEST_USER_ID, db=fake_db
+    )
 
     fake_generate_plain.assert_awaited_once()
     fake_generate_with_tools.assert_not_awaited()
@@ -610,7 +647,7 @@ async def test_submit_turn_skips_github_tools_outside_project_drill_down_phase(
         ),
     )
 
-    await submit_turn(session_id=10, message="answer", db=fake_db)
+    await submit_turn(session_id=10, message="answer", user_id=TEST_USER_ID, db=fake_db)
 
     fake_generate_plain.assert_awaited_once()
     fake_generate_with_tools.assert_not_awaited()
@@ -631,7 +668,9 @@ async def test_submit_turn_advances_to_next_phase_when_complete(
         ),
     )
 
-    updated = await submit_turn(session_id=10, message="I worked at Acme", db=fake_db)
+    updated = await submit_turn(
+        session_id=10, message="I worked at Acme", user_id=TEST_USER_ID, db=fake_db
+    )
 
     assert updated.current_phase == INTERVIEW_PHASES[1]
     assert updated.status == "in_progress"
@@ -657,7 +696,9 @@ async def test_submit_turn_tags_transcript_entry_with_hint_and_flag_metadata(
         ),
     )
 
-    updated = await submit_turn(session_id=10, message="I'm not sure", db=fake_db)
+    updated = await submit_turn(
+        session_id=10, message="I'm not sure", user_id=TEST_USER_ID, db=fake_db
+    )
 
     entry = updated.transcript[-1]
     assert entry["hint_level"] == 1
@@ -681,7 +722,9 @@ async def test_submit_turn_completes_interview_after_last_phase(
         ),
     )
 
-    updated = await submit_turn(session_id=10, message="No more questions", db=fake_db)
+    updated = await submit_turn(
+        session_id=10, message="No more questions", user_id=TEST_USER_ID, db=fake_db
+    )
 
     assert updated.status == "completed"
     assert updated.ended_at is not None
@@ -701,7 +744,9 @@ async def test_submit_turn_increments_red_flag_count(mocker: MockerFixture) -> N
         ),
     )
 
-    updated = await submit_turn(session_id=10, message="I was a CTO there", db=fake_db)
+    updated = await submit_turn(
+        session_id=10, message="I was a CTO there", user_id=TEST_USER_ID, db=fake_db
+    )
 
     assert updated.red_flag_count == 1
     assert updated.status == "in_progress"
@@ -722,7 +767,9 @@ async def test_submit_turn_issues_warning_at_threshold(mocker: MockerFixture) ->
         ),
     )
 
-    updated = await submit_turn(session_id=10, message="...", db=fake_db)
+    updated = await submit_turn(
+        session_id=10, message="...", user_id=TEST_USER_ID, db=fake_db
+    )
 
     assert updated.red_flag_count == DEFAULT_RED_FLAG_THRESHOLD
     assert updated.red_flag_warning_issued is True
@@ -748,7 +795,9 @@ async def test_submit_turn_ends_early_after_warning_and_another_red_flag(
         ),
     )
 
-    updated = await submit_turn(session_id=10, message="...", db=fake_db)
+    updated = await submit_turn(
+        session_id=10, message="...", user_id=TEST_USER_ID, db=fake_db
+    )
 
     assert updated.status == "ended_early"
     assert updated.end_reason == "red_flag_threshold"
@@ -780,6 +829,7 @@ async def test_submit_turn_ends_immediately_on_severe_red_flag_no_warning_needed
     updated = await submit_turn(
         session_id=10,
         message="This interview is f***ing stupid, you idiot bot",
+        user_id=TEST_USER_ID,
         db=fake_db,
     )
 
@@ -808,7 +858,9 @@ async def test_submit_turn_severe_red_flag_does_not_advance_phase_even_if_marked
         ),
     )
 
-    updated = await submit_turn(session_id=10, message="go to hell", db=fake_db)
+    updated = await submit_turn(
+        session_id=10, message="go to hell", user_id=TEST_USER_ID, db=fake_db
+    )
 
     assert updated.status == "ended_early"
     assert updated.current_phase == INTERVIEW_PHASES[0]
@@ -828,7 +880,9 @@ async def test_submit_turn_tracks_hint_count_per_phase(mocker: MockerFixture) ->
         ),
     )
 
-    updated = await submit_turn(session_id=10, message="I'm not sure", db=fake_db)
+    updated = await submit_turn(
+        session_id=10, message="I'm not sure", user_id=TEST_USER_ID, db=fake_db
+    )
 
     assert updated.hint_counts == {INTERVIEW_PHASES[2]: 1}
 
@@ -855,7 +909,9 @@ async def test_submit_turn_hint_count_is_independent_across_phases(
         ),
     )
 
-    updated = await submit_turn(session_id=10, message="still stuck", db=fake_db)
+    updated = await submit_turn(
+        session_id=10, message="still stuck", user_id=TEST_USER_ID, db=fake_db
+    )
 
     assert updated.hint_counts == {INTERVIEW_PHASES[1]: 2, INTERVIEW_PHASES[2]: 1}
 
@@ -878,7 +934,10 @@ async def test_submit_turn_skips_coding_phase_when_jd_does_not_require_it(
     )
 
     updated = await submit_turn(
-        session_id=10, message="That covers my experience", db=fake_db
+        session_id=10,
+        message="That covers my experience",
+        user_id=TEST_USER_ID,
+        db=fake_db,
     )
 
     assert INTERVIEW_PHASES[3] == "coding_challenge"
@@ -903,7 +962,10 @@ async def test_submit_turn_enters_coding_phase_when_jd_requires_it(
     )
 
     updated = await submit_turn(
-        session_id=10, message="That covers my experience", db=fake_db
+        session_id=10,
+        message="That covers my experience",
+        user_id=TEST_USER_ID,
+        db=fake_db,
     )
 
     assert updated.current_phase == INTERVIEW_PHASES[3]

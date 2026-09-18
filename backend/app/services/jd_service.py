@@ -45,7 +45,11 @@ class JobDescriptionExtractionError(Exception):
 
 
 async def parse_and_persist_job_description(
-    *, full_text: str | None, short_description: str | None, db: AsyncSession
+    *,
+    full_text: str | None,
+    short_description: str | None,
+    db: AsyncSession,
+    user_id: str,
 ) -> JobDescription:
     """Extract a JD via Gemini and persist it as a JobDescription row.
 
@@ -100,6 +104,7 @@ async def parse_and_persist_job_description(
         )
 
     jd = JobDescription(
+        user_id=user_id,
         role=extracted.role,
         company_name=extracted.company_name,
         seniority=extracted.seniority,
