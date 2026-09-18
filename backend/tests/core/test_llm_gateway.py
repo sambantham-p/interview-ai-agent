@@ -19,7 +19,10 @@ class _FakeOutput(BaseModel):
 def _mock_gateway_settings(mocker: MockerFixture) -> None:
     mocker.patch(
         "app.core.llm_gateway.get_gateway_settings",
-        return_value=GatewaySettings(gemini_interviewer_model="gemini-3.8-flash"),
+        return_value=GatewaySettings(
+            gemini_interviewer_model="gemini-3.8-flash",
+            gemini_judge_model="gemini-3.1-pro",
+        ),
     )
 
 
@@ -413,13 +416,19 @@ async def test_generate_structured_with_tools_logs_each_tool_round(
 
 
 def test_gateway_settings_model_for_task_resolves_interviewer() -> None:
-    settings = GatewaySettings(gemini_interviewer_model="gemini-3.8-flash")
+    settings = GatewaySettings(
+        gemini_interviewer_model="gemini-3.8-flash",
+        gemini_judge_model="gemini-3.1-pro",
+    )
 
     assert settings.model_for_task("interviewer") == "gemini-3.8-flash"
 
 
 def test_gateway_settings_model_for_task_raises_for_unknown_task() -> None:
-    settings = GatewaySettings(gemini_interviewer_model="gemini-3.8-flash")
+    settings = GatewaySettings(
+        gemini_interviewer_model="gemini-3.8-flash",
+        gemini_judge_model="gemini-3.1-pro",
+    )
 
     try:
         settings.model_for_task("unknown_task")
