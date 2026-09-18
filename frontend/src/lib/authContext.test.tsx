@@ -265,6 +265,57 @@ describe('AuthProvider', () => {
     })
   })
 
+  it('keeps isLoading false while a login request is in flight (guards the blank-page fix)', async () => {
+    let resolvePost: (value: { user: typeof fakeUser; token: string }) => void
+    mockPost.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolvePost = resolve
+      })
+    )
+    const probe = renderWithProbe()
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
+
+    // GuestOnlyRoute/RequireAuthRoute both render nothing while isLoading
+    // is true, so if a future change reintroduces setIsLoading(true) here,
+    // the sign-in page would go blank for the whole request - this is the
+    // regression this test exists to catch.
+    let pending!: Promise<unknown>
+    act(() => {
+      pending = probe.ctx.loginWithGoogle('a-real-id-token')
+    })
+    expect(screen.getByTestId('loading').textContent).toBe('false')
+
+    await act(async () => {
+      resolvePost({ user: fakeUser, token: 'g-token' })
+      await pending
+    })
+    expect(screen.getByTestId('loading').textContent).toBe('false')
+    expect(screen.getByTestId('authed').textContent).toBe('true')
+  })
+
+  it('keeps isLoading false while a registration request is in flight (guards the blank-page fix)', async () => {
+    let resolvePost: (value: { email: string; otp_sent: boolean; message: string }) => void
+    mockPost.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolvePost = resolve
+      })
+    )
+    const probe = renderWithProbe()
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
+
+    let pending!: Promise<unknown>
+    act(() => {
+      pending = probe.ctx.registerWithEmail('New User', 'new@prepwise.ai', 'Prepwise#2026')
+    })
+    expect(screen.getByTestId('loading').textContent).toBe('false')
+
+    await act(async () => {
+      resolvePost({ email: 'new@prepwise.ai', otp_sent: true, message: 'sent' })
+      await pending
+    })
+    expect(screen.getByTestId('loading').textContent).toBe('false')
+  })
+
   it('logout clears the session from state and localStorage', async () => {
     mockPost.mockResolvedValueOnce({ user: fakeUser, token: 'a-token' })
     const probe = renderWithProbe()

@@ -5,17 +5,13 @@ interface GuestOnlyRouteProps {
   children: React.ReactNode
 }
 
-// Wraps auth-only pages (login, signup, forgot/reset password, OTP
-// verification) so an already-signed-in visitor is bounced to the home
-// page instead of seeing a login form again. Waits out isLoading first -
-// that's AuthProvider's one-time localStorage hydration on mount, and
-// redirecting (or rendering the form) before it resolves would act on a
-// stale "not authenticated yet" reading.
+// Redirects signed-in users away from auth pages to resume setup.
+// Waits for AuthProvider loading to finish before checking authentication.
 export function GuestOnlyRoute({ children }: GuestOnlyRouteProps) {
   const { isAuthenticated, isLoading } = useAuth()
 
   if (isLoading) return null
-  if (isAuthenticated) return <Navigate to="/" replace />
+  if (isAuthenticated) return <Navigate to="/setup" replace />
 
   return children
 }
