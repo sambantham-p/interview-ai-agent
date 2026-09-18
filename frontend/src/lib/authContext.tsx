@@ -81,18 +81,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(authData.user))
   }
 
-  // Shared shape for every endpoint that establishes a session
-  // (Google/OTP/password sign-in all return the same AuthResponseData) -
-  // keeps the isLoading bookkeeping and session persistence in one place.
+// Shared response shape for Google, OTP, and password sign-in.
+// Keeps session persistence in one place without changing the auth
+// hydration loading state; each page uses its mutation state for loading.
   const authenticate = async (path: string, payload: unknown): Promise<User> => {
-    setIsLoading(true)
-    try {
-      const data = await api.post<AuthResponseData>(path, payload)
-      saveAuthSession(data)
-      return data.user
-    } finally {
-      setIsLoading(false)
-    }
+    const data = await api.post<AuthResponseData>(path, payload)
+    saveAuthSession(data)
+    return data.user
   }
 
   const loginWithGoogle = (credential: string): Promise<User> =>
@@ -104,22 +99,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loginWithEmail = (email: string, password: string): Promise<User> =>
     authenticate('/auth/login', { email, password })
 
-  const registerWithEmail = async (
+  const registerWithEmail = (
     name: string,
     email: string,
     password: string
-  ): Promise<RegisterResponseData> => {
-    setIsLoading(true)
-    try {
-      return await api.post<RegisterResponseData>('/auth/register', {
-        name,
-        email,
-        password,
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  ): Promise<RegisterResponseData> =>
+    api.post<RegisterResponseData>('/auth/register', { name, email, password })
 
   const resendOtp = async (email: string): Promise<void> => {
     await api.post('/auth/resend-otp', { email })

@@ -23,7 +23,7 @@ function renderGuestRoute() {
             </GuestOnlyRoute>
           }
         />
-        <Route path="/" element={<div>Home Page</div>} />
+        <Route path="/setup" element={<div>Setup Page</div>} />
       </Routes>
     </MemoryRouter>
   )
@@ -42,10 +42,10 @@ describe('GuestOnlyRoute', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('redirects to home when the visitor is already authenticated', () => {
+  it('redirects to resume setup when the visitor is already authenticated', () => {
     mockUseAuth.mockReturnValue({ isAuthenticated: true, isLoading: false })
     renderGuestRoute()
-    expect(screen.getByText('Home Page')).toBeInTheDocument()
+    expect(screen.getByText('Setup Page')).toBeInTheDocument()
     expect(screen.queryByText('Login Form')).not.toBeInTheDocument()
   })
 
