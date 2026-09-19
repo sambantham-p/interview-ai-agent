@@ -147,7 +147,7 @@ function NoReportYet({ detail, sessionId }: { detail: InterviewDetail; sessionId
 
 export function ReportPage() {
   const { sessionId } = useParams()
-  const detailQuery = useInterview(sessionId)
+  const detailQuery = useInterview(sessionId, { refetchOnMount: 'always' })
   const reportQuery = useInterviewReport(sessionId)
 
   const isLoading = detailQuery.isLoading || reportQuery.isLoading

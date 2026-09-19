@@ -278,6 +278,7 @@ async def start_interview(
         {"role": "user", "text": OPENING_PROMPT_TEXT},
         {"role": "model", "text": output.reply, "phase": session.current_phase},
     ]
+    session.phase_started_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(session)
     return session

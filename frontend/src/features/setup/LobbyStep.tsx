@@ -36,7 +36,13 @@ interface LobbyStepProps {
   onBack: () => void
 }
 
-export function LobbyStep({ resume, jobDescription, preset, duration, onBack }: LobbyStepProps) {
+export function LobbyStep({
+  resume,
+  jobDescription,
+  preset,
+  duration,
+  onBack,
+}: LobbyStepProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null)
@@ -48,7 +54,8 @@ export function LobbyStep({ resume, jobDescription, preset, duration, onBack }: 
   const start = useMutation({
     mutationFn: (payload: InterviewStartRequest) =>
       api.post<InterviewStartResponse>('/interview/start', payload),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['interviews'] }),
+    onSuccess: () =>
+      void queryClient.invalidateQueries({ queryKey: ['interviews'] }),
     onError: () => {
       setSecondsLeft(null)
       setActiveStage(0)
@@ -65,7 +72,8 @@ export function LobbyStep({ resume, jobDescription, preset, duration, onBack }: 
   }, [secondsLeft])
 
   useEffect(() => {
-    if (countdownDone && start.isSuccess) navigate(`/interview/${start.data.id}`)
+    if (countdownDone && start.isSuccess)
+      navigate(`/interview/${start.data.id}`)
   }, [countdownDone, start.isSuccess, start.data, navigate])
 
   useEffect(() => {
@@ -100,38 +108,57 @@ export function LobbyStep({ resume, jobDescription, preset, duration, onBack }: 
       ) : (
         <>
           <div>
-            <h2 className="text-lg font-semibold text-ink">Ready when you are</h2>
+            <h2 className="text-lg font-semibold text-ink">
+              Ready when you are
+            </h2>
             <p className="mt-1 text-sm text-muted">
-              The interviewer speaks first. Answer naturally, the way you would in person.
+              The interviewer speaks first. Answer naturally, the way you would
+              in person.
             </p>
           </div>
 
           <Card>
             <dl className="grid gap-4 sm:grid-cols-3 text-sm">
               <div>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-muted">Role</dt>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-muted">
+                  Role
+                </dt>
                 <dd className="mt-1 text-ink font-medium">
                   {jobDescription.role}
-                  <span className="block text-xs text-muted font-normal">{jobDescription.seniority}</span>
+                  <span className="block text-xs text-muted font-normal">
+                    {jobDescription.seniority}
+                  </span>
                 </dd>
               </div>
               <div>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-muted">Format</dt>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-muted">
+                  Format
+                </dt>
                 <dd className="mt-1 text-ink font-medium">
                   {preset.label}
-                  <span className="block text-xs text-muted font-normal">{duration} minutes</span>
+                  <span className="block text-xs text-muted font-normal">
+                    {duration} minutes
+                  </span>
                 </dd>
               </div>
               <div>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-muted">Resume</dt>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-muted">
+                  Resume
+                </dt>
                 <dd className="mt-1 text-ink font-medium">
-                  {new Date(resume.created_at).toLocaleDateString()}
+                  {new Date(resume.created_at).toLocaleDateString('en-GB')}
                 </dd>
               </div>
             </dl>
           </Card>
 
-          <ErrorAlert message={start.error ? toErrorMessage(start.error, 'Could not start the interview.') : null} />
+          <ErrorAlert
+            message={
+              start.error
+                ? toErrorMessage(start.error, 'Could not start the interview.')
+                : null
+            }
+          />
 
           <div className="flex gap-3 sm:justify-between">
             <div className="sm:w-32">

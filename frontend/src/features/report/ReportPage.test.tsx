@@ -1,5 +1,8 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { render } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ToastProvider } from '../../lib/ToastProvider'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError, api } from '../../lib/api'
@@ -52,6 +55,28 @@ describe('ReportPage', () => {
     vi.mocked(api.get).mockReset()
     vi.mocked(api.post).mockReset()
     mockPostForBlob.mockReset()
+  })
+
+  it('shows the stored interview length even when the cache holds an older copy', async () => {
+    respond({ detail: buildDetail({ ended_at: '2026-01-01T10:30:00Z' }), report: buildReport() })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    // What the live interview page leaves behind: no end time yet.
+    queryClient.setQueryData(['interview', '7'], buildDetail({ ended_at: null }))
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/interview/7/report']}>
+            <Routes>
+              <Route path="/interview/:sessionId/report" element={<ReportPage />} />
+            </Routes>
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => expect(screen.getByText('30')).toBeInTheDocument())
+    expect(api.get).toHaveBeenCalledWith('/interview/7')
   })
 
   it('shows the report with tabs and downloads the PDF', async () => {

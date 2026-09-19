@@ -124,7 +124,13 @@ function InterviewView({ interview, sessionId }: InterviewViewProps) {
 
   return (
     <div className="h-dvh flex flex-col bg-hero">
-      <InterviewHeader interview={interview} voiceOn={voiceOn} onToggleVoice={toggleVoice} />
+      <InterviewHeader
+        interview={interview}
+        voiceOn={voiceOn}
+        onToggleVoice={toggleVoice}
+        isClockHeld={isOpeningPending}
+        restartClock={Boolean(opening)}
+      />
 
       <main className="scrollbar-soft [--scroll-thumb:rgba(255,255,255,0.2)] [--scroll-thumb-hover:rgba(255,255,255,0.35)] flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl space-y-4 px-4 sm:px-6 py-6">

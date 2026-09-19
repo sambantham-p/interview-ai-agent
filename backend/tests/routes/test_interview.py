@@ -94,6 +94,39 @@ def test_turn_returns_reply_and_updated_phase(
     assert body["data"]["current_phase"] == "project_drill_down"
 
 
+def test_turn_reports_when_the_interview_ended(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    ended_at = datetime(2026, 1, 1, 10, 30, tzinfo=UTC)
+    mocker.patch(
+        "app.routes.interview.submit_turn",
+        new_callable=mocker.AsyncMock,
+        return_value=_fake_session(status="completed", ended_at=ended_at),
+    )
+
+    response = authed_client.post(
+        "/api/v1/interview/10/turn", json={"message": "Done."}
+    )
+
+    data = response.json()["data"]
+    assert data["status"] == "completed"
+    assert datetime.fromisoformat(data["ended_at"]) == ended_at
+
+
+def test_turn_has_no_end_time_while_the_interview_runs(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    mocker.patch(
+        "app.routes.interview.submit_turn",
+        new_callable=mocker.AsyncMock,
+        return_value=_fake_session(),
+    )
+
+    response = authed_client.post("/api/v1/interview/10/turn", json={"message": "Hi."})
+
+    assert response.json()["data"]["ended_at"] is None
+
+
 def test_turn_returns_404_when_session_missing(
     authed_client: TestClient, mocker: MockerFixture
 ) -> None:

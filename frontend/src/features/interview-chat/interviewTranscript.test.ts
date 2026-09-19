@@ -3,6 +3,14 @@ import { buildDetail, buildTurn } from '../../test/fixtures'
 import { appendTurn } from './interviewTranscript'
 
 describe('appendTurn', () => {
+  it('carries the end time from the turn that ended the interview', () => {
+    const turn = buildTurn({ status: 'completed', ended_at: '2026-01-01T10:30:00Z' })
+
+    const next = appendTurn(buildDetail({ ended_at: null }), 'Last answer', turn)
+
+    expect(next.ended_at).toBe('2026-01-01T10:30:00Z')
+  })
+
   it('adds the candidate answer and the interviewer reply and merges the turn state', () => {
     const session = buildDetail()
     const turn = buildTurn({
