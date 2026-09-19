@@ -46,3 +46,19 @@ RECOMMENDATION_TIERS = [
 
 # Maximum attitude score when the session ends for abusive language.
 ATTITUDE_ABUSIVE_LANGUAGE_SCORE_CAP = 10
+
+RECOMMENDATION_LABELS = {
+    "strong_hire": "Strong hire",
+    "hire": "Hire",
+    "borderline": "Borderline",
+    "no_hire": "No hire",
+}
+
+# A dimension scoring at least this is a strength; below it, a focus area.
+DIMENSION_STRONG_SCORE = 70
+MAX_STRENGTHS_SHOWN = 2
+
+END_REASON_LABELS = {
+    "abusive_language": "Ended: abusive language",
+    "red_flag_threshold": "Ended: too many red flags",
+}

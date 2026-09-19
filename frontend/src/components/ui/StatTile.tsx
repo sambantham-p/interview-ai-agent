@@ -1,6 +1,6 @@
 import { Card } from './Card'
 
-type StatTone = 'brand' | 'navy' | 'success'
+type StatTone = 'brand' | 'navy' | 'success' | 'warning'
 
 interface StatTileProps {
   icon: React.ReactNode
@@ -13,6 +13,7 @@ const TONE_STYLES: Record<StatTone, string> = {
   brand: 'bg-brand/10 text-brand',
   navy: 'bg-navy/10 text-navy',
   success: 'bg-emerald-50 text-emerald-600',
+  warning: 'bg-amber-50 text-amber-600',
 }
 
 export function StatTile({ icon, label, value, tone = 'brand' }: StatTileProps) {

@@ -9,6 +9,7 @@ from app.constants.judge import (
     LLM_TASK_JUDGE_FUNDAMENTALS,
     LLM_TASK_JUDGE_PROJECT_DEPTH,
 )
+from app.constants.voice import GEMINI_TTS_TASK, STT_TASK
 
 
 class DatabaseSettings(BaseSettings):
@@ -88,6 +89,8 @@ class GatewaySettings(BaseSettings):
 
     gemini_interviewer_model: str
     gemini_judge_model: str
+    gemini_stt_model: str
+    gemini_tts_model: str
 
     def model_for_task(self, task: str) -> str:
         routes = {
@@ -97,6 +100,8 @@ class GatewaySettings(BaseSettings):
             LLM_TASK_JUDGE_FUNDAMENTALS: self.gemini_judge_model,
             LLM_TASK_JUDGE_ATTITUDE: self.gemini_judge_model,
             LLM_TASK_JUDGE_CAREER_FIT: self.gemini_judge_model,
+            STT_TASK: self.gemini_stt_model,
+            GEMINI_TTS_TASK: self.gemini_tts_model,
         }
         if task not in routes:
             raise KeyError(f"No model route configured for task {task!r}")

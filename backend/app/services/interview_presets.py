@@ -6,6 +6,10 @@ from datetime import datetime
 from typing import Literal
 
 from app.constants.interview import (
+    ANSWER_MAX_FRACTION_OF_INTERVIEW,
+    ANSWER_MAX_SECONDS_CEILING,
+    ANSWER_MAX_SECONDS_FLOOR,
+    ANSWER_MAX_SECONDS_UNTIMED,
     CODING_PHASE,
     INTERVIEW_PHASES,
     INTERVIEW_PRESETS,
@@ -14,6 +18,7 @@ from app.constants.interview import (
     PHASE_TIME_LOW_FRACTION,
     PHASE_TIME_WEIGHTS,
 )
+from app.models.interview_session import InterviewSession
 
 PhaseTimeStatus = Literal["comfortable", "running_low", "exhausted"]
 
@@ -110,3 +115,28 @@ def phase_time_status(
     else:
         status = "comfortable"
     return status, fraction >= PHASE_TIME_FORCE_COMPLETE_FRACTION
+
+
+def session_phase_time_status(
+    session: InterviewSession, now: datetime
+) -> tuple[PhaseTimeStatus | None, bool]:
+    """(time_status, force_complete) for the session's current phase, or
+    (None, False) when the session has no time budget.
+    """
+    budget = (session.phase_time_budget or {}).get(session.current_phase)
+    if not budget or session.phase_started_at is None:
+        return None, False
+    return phase_time_status(
+        budget_minutes=budget, phase_started_at=session.phase_started_at, now=now
+    )
+
+
+def max_answer_seconds(duration_minutes: int | None) -> int:
+    """The longest a candidate may record a single spoken answer, scaled
+    to the interview's length so a short interview can't be eaten by one
+    answer and a long one isn't cut short.
+    """
+    if duration_minutes is None:
+        return ANSWER_MAX_SECONDS_UNTIMED
+    scaled = round(duration_minutes * 60 * ANSWER_MAX_FRACTION_OF_INTERVIEW)
+    return max(ANSWER_MAX_SECONDS_FLOOR, min(ANSWER_MAX_SECONDS_CEILING, scaled))

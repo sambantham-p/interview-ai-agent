@@ -98,3 +98,21 @@ PHASE_TIME_WEIGHTS = {
 PHASE_TIME_LOW_FRACTION = 0.7
 PHASE_TIME_EXHAUSTED_FRACTION = 1.0
 PHASE_TIME_FORCE_COMPLETE_FRACTION = 1.5
+
+PHASE_LABELS = {
+    "background_check": "Background Check",
+    "project_drill_down": "Project Drill-Down",
+    "technical_interview": "Technical Interview",
+    "coding_challenge": "Coding Discussion",
+    "general_technical": "General Technical",
+    "career_motivation": "Career Motivation",
+    "candidate_questions": "Candidate Questions",
+}
+
+# A spoken answer may use up to this fraction of the interview's total
+# duration, bounded by the minimum and maximum values below. For interviews
+# with no time limit, use the fixed default duration.
+ANSWER_MAX_FRACTION_OF_INTERVIEW = 1 / 4
+ANSWER_MAX_SECONDS_FLOOR = 180
+ANSWER_MAX_SECONDS_CEILING = 480
+ANSWER_MAX_SECONDS_UNTIMED = 300

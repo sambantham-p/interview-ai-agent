@@ -50,6 +50,7 @@ __all__ = [
     "get_evaluations_by_ids",
     "get_latest_report",
     "get_report_evaluations",
+    "list_finished_interviews_with_reports",
 ]
 
 
@@ -297,6 +298,44 @@ async def generate_report(
     await db.commit()
     await db.refresh(report)
     return report
+
+
+async def list_finished_interviews_with_reports(
+    *, user_id: str, db: AsyncSession
+) -> list[tuple[InterviewSession, JobDescription, InterviewReport | None]]:
+    """Every finished interview the user has, newest first, each with the
+    job it was for and its most recent report (None until one has been
+    generated).
+    """
+    rows = (
+        await db.execute(
+            select(InterviewSession, JobDescription)
+            .join(
+                JobDescription, JobDescription.id == InterviewSession.job_description_id
+            )
+            .where(
+                InterviewSession.user_id == user_id,
+                InterviewSession.status.in_(FINISHED_SESSION_STATUSES),
+            )
+            .order_by(InterviewSession.created_at.desc())
+        )
+    ).all()
+    if not rows:
+        return []
+
+    latest_reports = (
+        await db.execute(
+            select(InterviewReport)
+            .where(InterviewReport.session_id.in_([session.id for session, _ in rows]))
+            .order_by(InterviewReport.session_id, InterviewReport.created_at.desc())
+            .distinct(InterviewReport.session_id)
+        )
+    ).scalars()
+    report_by_session = {report.session_id: report for report in latest_reports}
+    return [
+        (session, job_description, report_by_session.get(session.id))
+        for session, job_description in rows
+    ]
 
 
 async def get_latest_report(

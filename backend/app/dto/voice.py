@@ -13,3 +13,7 @@ class TextToSpeechRequest(BaseModel):
             "not tied to a live interview."
         ),
     )
+
+
+class SpeechToTextResponse(BaseModel):
+    text: str

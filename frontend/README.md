@@ -8,17 +8,18 @@ the `health-check/` page. **Auth (login, signup, email OTP verification,
 forgot/reset password) is now real, built, and tested** — see
 [Authentication](#authentication) below. **Frontend Finalization is
 underway as 5 reviewable checkpoints (see root `CLAUDE.md`'s Stage 5
-entry) — Checkpoints 1 and 2 done (Checkpoint 2: the `/setup` onboarding
-wizard, with resume/JD previews, delete and duplicate handling):** `dashboard/` and `documents/` are now real
+entry) — Checkpoints 1-4 built (Checkpoint 2: the `/setup` onboarding
+wizard; Checkpoint 3: the live interview screen with voice; Checkpoint 4:
+the report page + PDF; 3 and 4 have their unit tests deferred and are not
+browser-verified yet):** `dashboard/` and `documents/` are now real
 pages (behind a new `AppShell` sidebar shell), and the authenticated
 landing route is `/dashboard`, not `/setup`. Checkpoint 1 also locked a
 small set of reusable visual-polish primitives (icon set, `Card`'s
 hover-lift, `StatTile`, tinted icon chips, icon-paired section headers)
 — see root `CLAUDE.md`'s Frontend Conventions for the full list; reuse
 these in every later checkpoint rather than inventing a new look per
-screen. Every other page
-(`resume-upload/`, `interview-chat/`, `coding-challenge/`, `report/`) is
-still an inert placeholder, each waiting on its own checkpoint. This
+screen. Only the settings
+page (Checkpoint 5) is still to come. This
 document is both a developer guide for what's real today and a spec to
 build against for what isn't — when a placeholder becomes real, update
 this file in the same commit, don't silently diverge from it.
@@ -104,12 +105,25 @@ frontend/                            # ✓ = real, built and verified; everythin
 │   │   │   ├── LobbyStep / LobbyStarting.tsx # lobby: start request runs during a countdown ring, then a "preparing" checklist
 │   │   │   ├── DocumentPreviewCard.tsx#   preview shell (header, stats row, delete + Change)
 │   │   │   └── DocumentPreviews.tsx   #   resume/JD preview content
-│   │   ├── interview-chat/        # placeholder — Phases 1,2,3,5,6,7, one continuous view;
-│   │   │   └── InterviewChatPage.tsx  #   real logic + real-time voice land with Checkpoint 3
-│   │   ├── coding-challenge/      # placeholder, SLATED FOR REMOVAL in Checkpoint 3 — Phase 4 is
-│   │   │   └── CodingChallengePage.tsx #  just more chat through interview-chat/, no separate route
-│   │   └── report/                # placeholder — real logic + PDF export land with Checkpoint 4
-│   │       └── ReportPage.tsx
+│   │   ├── interview-chat/        # ✓ REAL (Checkpoint 3) — /interview/:sessionId, the dark "simulation" track
+│   │   │   ├── InterviewChatPage.tsx  #   loads the session, sends turns, holds each reply until its voice is ready
+│   │   │   ├── InterviewHeader.tsx    #   phase progress, server-clocked phase timer, mute toggle
+│   │   │   ├── MessageBubble.tsx      #   one message + hint / "take your time" chips + replay
+│   │   │   ├── Composer.tsx           #   text box + mic button (speech lands here to edit) + send
+│   │   │   ├── EndedPanel.tsx         #   completed / ended-early states, opens the report
+│   │   │   ├── useVoiceRecorder.ts    #   mic recording -> POST /voice/stt, length capped by the interview
+│   │   │   ├── useSpeechPlayback.ts   #   POST /voice/tts, load-then-play, silent when no voice is available
+│   │   │   ├── usePhaseClock.ts       #   phase time left, counted from the server's clock
+│   │   │   └── interviewTranscript.ts #   applies a turn response to the cached session
+│   │   ├── reports/               # ✓ REAL (Checkpoint 4) — /reports, the collection of finished interviews
+│   │   │   ├── ReportsPage.tsx        #   stats row + cards (GET /reports), empty/loading/error states
+│   │   │   └── ReportCard.tsx         #   score ring, verdict, date/duration, hint/flag badges -> the report
+│   │   └── report/                # ✓ REAL (Checkpoint 4) — /interview/:sessionId/report
+│   │       ├── ReportPage.tsx         #   header band (verdict, Download PDF, Practice again) + Radix tabs
+│   │       ├── OverviewTab / InsightsTab / PhaseReviewTab / ActionPlanTab.tsx
+│   │       ├── ScoreRing.tsx / ScoreBar.tsx
+│   │       ├── reportInsights.ts      #   display helpers (verdict/strength/focus lists come from the backend)
+│   │       └── useReportPdfDownload.ts
 │   ├── components/
 │   │   ├── AppShell.tsx           # ✓ REAL (Checkpoint 1) — persistent left-sidebar "workspace"
 │   │   │                          #   shell (dashboard/documents/report); the live interview stays
@@ -180,7 +194,7 @@ Rules that keep this from rotting back into a tangle as pages are added:
 - **Colocation:** a hook or helper used by only one feature lives inside
   that feature's folder, not in a shared `utils/`. It only moves to
   `lib/`/`components/` once a *second* feature needs it.
-- **No cross-feature imports.** `coding-challenge/` never imports from
+- **No cross-feature imports.** `report/` never imports from
   `interview-chat/`. If two features need to share something, that thing
   is promoted to `components/`/`lib/`, and both features import it from
   there — never from each other.
@@ -401,9 +415,9 @@ trades away:
 | `/dashboard` | `dashboard/` | ✓ real (Checkpoint 1) — authenticated landing route |
 | `/documents` | `documents/` | ✓ real (Checkpoint 1) |
 | `/setup` | `setup/` | onboarding wizard: resume → JD → preset/duration picker → mic check → lobby → starts the interview |
-| `/interview/:sessionId` | `interview-chat/` | placeholder — Phases 1, 2, 3, 5, 6, 7 (all dialogue phases, one continuous view — matches the single persistent Interviewer agent, no page break per phase), real logic + real-time voice land in Checkpoint 3 |
-| `/interview/:sessionId/coding` | `coding-challenge/` | placeholder, **removed in Checkpoint 3** — Phase 4 folds into `interview-chat/`, no separate route (only ever rendered if the JD implied a coding assessment) |
-| `/interview/:sessionId/report` | `report/` | placeholder — real logic + PDF export land in Checkpoint 4 |
+| `/interview/:sessionId` | `interview-chat/` | ✓ real (Checkpoint 3) — all dialogue phases in one continuous view (matches the single persistent Interviewer agent, no page break per phase); turn-based voice: a mic button transcribes into the text box, replies are spoken |
+| `/reports` | `reports/` | ✓ real (Checkpoint 4) — every finished interview as a card (score, verdict, date), sidebar "Reports"; a card opens its report |
+| `/interview/:sessionId/report` | `report/` | ✓ real (Checkpoint 4) — Overview / Performance insights / Phase review / Action plan tabs (Radix UI Tabs), PDF download |
 | `/settings` | `settings/` | not yet created — lands in Checkpoint 5, done last |
 
 The chat UI staying **one page across phases 1–7** (not one route per

@@ -39,10 +39,16 @@ class UserResponse(BaseModel):
     id: str
     email: str
     name: str
+    preferred_name: str | None = None
     picture: str | None = None
     auth_provider: str
     is_verified: bool
     created_at: datetime
+
+
+class UpdateProfileRequest(BaseModel):
+    # An empty or whitespace-only value clears the preferred name.
+    preferred_name: str = Field(..., max_length=50, pattern=r"^[^<>&]*$")
 
 
 class ForgotPasswordRequest(BaseModel):

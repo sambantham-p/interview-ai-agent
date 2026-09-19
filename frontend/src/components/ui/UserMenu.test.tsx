@@ -43,10 +43,11 @@ describe('UserMenu', () => {
 
     fireEvent.click(screen.getByLabelText('Account menu'))
 
-    expect(screen.getByText('Sarah Chen')).toBeInTheDocument()
-    expect(screen.getByText('sarah@example.com')).toBeInTheDocument()
+    // Shown on the sidebar row and repeated in the opened menu's header.
+    expect(screen.getAllByText('Sarah Chen')).toHaveLength(2)
+    expect(screen.getAllByText('sarah@example.com')).toHaveLength(2)
     expect(screen.getByText('Settings')).toBeInTheDocument()
-    expect(screen.getByText('Sign out')).toBeInTheDocument()
+    expect(screen.getByText('Log out')).toBeInTheDocument()
   })
 
   it('signs out and redirects to the landing page', () => {
@@ -57,7 +58,7 @@ describe('UserMenu', () => {
     renderUserMenu()
 
     fireEvent.click(screen.getByLabelText('Account menu'))
-    fireEvent.click(screen.getByText('Sign out'))
+    fireEvent.click(screen.getByText('Log out'))
 
     expect(mockLogout).toHaveBeenCalledOnce()
     expect(screen.getByText('Home Page')).toBeInTheDocument()
@@ -91,12 +92,12 @@ describe('UserMenu', () => {
 
     // Open the menu
     fireEvent.click(screen.getByLabelText('Account menu'))
-    expect(screen.getByText('Sign out')).toBeInTheDocument()
+    expect(screen.getByText('Log out')).toBeInTheDocument()
 
     // Click outside the menu ref
     fireEvent.mouseDown(container)
 
-    expect(screen.queryByText('Sign out')).not.toBeInTheDocument()
+    expect(screen.queryByText('Log out')).not.toBeInTheDocument()
   })
 
   it('toggles the dropdown closed when the avatar button is clicked again', () => {
@@ -110,11 +111,11 @@ describe('UserMenu', () => {
 
     // Open
     fireEvent.click(avatarBtn)
-    expect(screen.getByText('Sign out')).toBeInTheDocument()
+    expect(screen.getByText('Log out')).toBeInTheDocument()
 
     // Toggle closed
     fireEvent.click(avatarBtn)
-    expect(screen.queryByText('Sign out')).not.toBeInTheDocument()
+    expect(screen.queryByText('Log out')).not.toBeInTheDocument()
   })
 
   it('signs out regardless of auth provider (google user)', () => {
@@ -129,7 +130,7 @@ describe('UserMenu', () => {
     renderUserMenu()
 
     fireEvent.click(screen.getByLabelText('Account menu'))
-    fireEvent.click(screen.getByText('Sign out'))
+    fireEvent.click(screen.getByText('Log out'))
 
     expect(mockLogout).toHaveBeenCalledOnce()
   })

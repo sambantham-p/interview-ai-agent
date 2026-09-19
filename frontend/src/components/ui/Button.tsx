@@ -1,6 +1,6 @@
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'google' | 'secondary' | 'outline'
+  variant?: 'primary' | 'google' | 'secondary' | 'outline' | 'danger'
   isLoading?: boolean
   children: React.ReactNode
 }
@@ -25,6 +25,7 @@ export function Button({
       'bg-[#f4f7fa] text-ink border border-mist hover:bg-[#e2e8f0]',
     outline:
       'bg-transparent text-navy border border-navy hover:bg-navy/5',
+    danger: 'bg-red-600 text-white hover:bg-red-700 active:scale-[0.99] shadow-sm',
   }[variant]
 
   return (

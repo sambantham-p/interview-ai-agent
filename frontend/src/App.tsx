@@ -9,14 +9,15 @@ import { LoginPage } from './features/auth/LoginPage'
 import { SignupPage } from './features/auth/SignupPage'
 import { VerifyOtpPage } from './features/auth/VerifyOtpPage'
 import { ForgotPasswordPage } from './features/auth/ForgotPasswordPage'
+import { SettingsPage } from './features/settings/SettingsPage'
 import { ResetCodePage } from './features/auth/ResetCodePage'
 import { NewPasswordPage } from './features/auth/NewPasswordPage'
 import { DashboardPage } from './features/dashboard/DashboardPage'
 import { DocumentsPage } from './features/documents/DocumentsPage'
 import { SetupWizardPage } from './features/setup/SetupWizardPage'
 import { InterviewChatPage } from './features/interview-chat/InterviewChatPage'
-import { CodingChallengePage } from './features/coding-challenge/CodingChallengePage'
 import { ReportPage } from './features/report/ReportPage'
+import { ReportsPage } from './features/reports/ReportsPage'
 import { NotFoundPage } from './features/not-found/NotFoundPage'
 import { STARTUP_ROUTE } from './lib/routes'
 
@@ -151,19 +152,11 @@ export function App() {
           />
           <Route
             path="/reset-password/verify"
-            element={
-              <GuestOnlyRoute>
-                <ResetCodePage />
-              </GuestOnlyRoute>
-            }
+            element={<ResetCodePage />}
           />
           <Route
             path="/reset-password/new"
-            element={
-              <GuestOnlyRoute>
-                <NewPasswordPage />
-              </GuestOnlyRoute>
-            }
+            element={<NewPasswordPage />}
           />
           <Route
             path="/dashboard"
@@ -178,6 +171,14 @@ export function App() {
             element={
               <RequireAuthRoute>
                 <DocumentsPage />
+              </RequireAuthRoute>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <RequireAuthRoute>
+                <ReportsPage />
               </RequireAuthRoute>
             }
           />
@@ -198,18 +199,18 @@ export function App() {
             }
           />
           <Route
-            path="/interview/:sessionId/coding"
-            element={
-              <RequireAuthRoute>
-                <CodingChallengePage />
-              </RequireAuthRoute>
-            }
-          />
-          <Route
             path="/interview/:sessionId/report"
             element={
               <RequireAuthRoute>
                 <ReportPage />
+              </RequireAuthRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <RequireAuthRoute>
+                <SettingsPage />
               </RequireAuthRoute>
             }
           />

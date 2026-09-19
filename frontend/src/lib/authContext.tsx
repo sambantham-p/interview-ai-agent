@@ -1,11 +1,13 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { api, AUTH_TOKEN_STORAGE_KEY } from './api'
+import { queryClient } from '../app/queryClient'
+import { api, AUTH_TOKEN_STORAGE_KEY, setUnauthorizedHandler } from './api'
 import type {
   AuthResponseData,
   ForgotPasswordResponseData,
   RegisterResponseData,
   ResetPasswordResponseData,
   User,
+  UserResponseData,
   VerifyResetCodeResponseData,
 } from '../types/auth'
 
@@ -26,6 +28,8 @@ interface AuthContextType {
   forgotPassword: (email: string) => Promise<ForgotPasswordResponseData>
   verifyResetCode: (email: string, otp: string) => Promise<string>
   resetPassword: (resetToken: string, newPassword: string) => Promise<void>
+  updatePreferredName: (preferredName: string) => Promise<User>
+  deleteAccount: () => Promise<void>
   logout: () => void
 }
 
@@ -52,16 +56,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const storedUser = localStorage.getItem(STORAGE_USER_KEY)
       const storedToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)
-      if (storedUser) {
+      if (storedUser && storedToken) {
         const parsed: unknown = JSON.parse(storedUser)
         if (isStoredUser(parsed)) {
           setUser(parsed)
+          setToken(storedToken)
         } else {
           localStorage.removeItem(STORAGE_USER_KEY)
+          localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
         }
-      }
-      if (storedToken) {
-        setToken(storedToken)
+      } else {
+        localStorage.removeItem(STORAGE_USER_KEY)
+        localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
       }
     } catch {
       // Corrupted localStorage data - clear it so it doesn't keep failing.
@@ -128,18 +134,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
   }
 
+  const updatePreferredName = async (preferredName: string): Promise<User> => {
+    const data = await api.patch<UserResponseData>('/auth/me', {
+      preferred_name: preferredName,
+    })
+    setUser(data.user)
+    localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(data.user))
+    return data.user
+  }
+
+  const deleteAccount = async (): Promise<void> => {
+    await api.delete('/auth/me')
+    logout()
+  }
+
   const logout = () => {
     setUser(null)
     setToken(null)
     localStorage.removeItem(STORAGE_USER_KEY)
     localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+    queryClient.clear()
   }
+
+  useEffect(() => {
+    setUnauthorizedHandler(logout)
+    return () => setUnauthorizedHandler(null)
+  }, [])
 
   const value = useMemo<AuthContextType>(
     () => ({
       user,
       token,
-      isAuthenticated: !!user,
+      isAuthenticated: !!user && !!token,
       isLoading,
       loginWithGoogle,
       registerWithEmail,
@@ -149,6 +175,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       forgotPassword,
       verifyResetCode,
       resetPassword,
+      updatePreferredName,
+      deleteAccount,
       logout,
     }),
     [user, token, isLoading]

@@ -73,7 +73,19 @@ function getStoredAuthToken(): string | null {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+let unauthorizedHandler: (() => void) | null = null
+
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler
+}
+
+
+function isAuthEndpoint(path: string): boolean {
+  return path.startsWith('/auth/')
+}
+
+async function send(path: string, init?: RequestInit): Promise<Response> {
   const token = getStoredAuthToken()
 
   let response: Response
@@ -97,26 +109,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     )
   }
 
+  if (response.status === 401 && !isAuthEndpoint(path)) {
+    unauthorizedHandler?.()
+  }
+  return response
+}
+
+const UNEXPECTED_RESPONSE_MESSAGE =
+  'The server returned an unexpected response. Please try again.'
+
+
+async function parseEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
   let parsed: unknown
   try {
     parsed = await response.json()
   } catch {
-    // A reachable server that didn't return our JSON envelope
-    // response.json() throws "Unexpected end of JSON input" on an empty
-    // body, which is a confusing error to surface as-is.
-    throw new ApiRequestError(
-      'The server returned an unexpected response. Please try again.',
-      response.status
-    )
+    throw new ApiRequestError(UNEXPECTED_RESPONSE_MESSAGE, response.status)
   }
-
   if (!isApiEnvelope(parsed)) {
-    throw new ApiRequestError(
-      'The server returned an unexpected response. Please try again.',
-      response.status
-    )
+    throw new ApiRequestError(UNEXPECTED_RESPONSE_MESSAGE, response.status)
   }
-  const body = parsed as ApiEnvelope<T>
+  return parsed as ApiEnvelope<T>
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const body = await parseEnvelope<T>(await send(path, init))
 
   if (!body.success) {
     throw new ApiRequestError(body.error.message, body.status_code)
@@ -125,11 +142,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body.data
 }
 
+
+async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
+  const response = await send(path, init)
+  if (response.ok) return response.blob()
+
+  const body = await parseEnvelope<never>(response)
+  throw new ApiRequestError(
+    body.success ? UNEXPECTED_RESPONSE_MESSAGE : body.error.message,
+    response.status
+  )
+}
+
 export const api = {
   get: <T>(path: string): Promise<T> => request<T>(path),
   post: <T>(path: string, payload: unknown): Promise<T> =>
     request<T>(path, { method: 'POST', body: JSON.stringify(payload) }),
+  patch: <T>(path: string, payload: unknown): Promise<T> =>
+    request<T>(path, { method: 'PATCH', body: JSON.stringify(payload) }),
   delete: <T>(path: string): Promise<T> => request<T>(path, { method: 'DELETE' }),
   upload: <T>(path: string, formData: FormData): Promise<T> =>
     request<T>(path, { method: 'POST', body: formData }),
+  postForBlob: (path: string, payload: unknown, signal?: AbortSignal): Promise<Blob> =>
+    requestBlob(path, { method: 'POST', body: JSON.stringify(payload), signal }),
 }

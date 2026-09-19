@@ -125,7 +125,7 @@ describe('VerifyOtpPage', () => {
     expect(mockVerifyOtp).not.toHaveBeenCalled()
   })
 
-  it('resends the code and shows a confirmation notice', async () => {
+  it('resends the code and shows a confirmation toast', async () => {
     mockResendOtp.mockResolvedValueOnce(undefined)
     renderVerifyWithResendReady('?email=alex%40prepwise.ai')
 
@@ -133,7 +133,7 @@ describe('VerifyOtpPage', () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText('A new verification code has been dispatched.')
+        screen.getByText('A new verification code has been sent.')
       ).toBeInTheDocument()
     )
     expect(mockResendOtp).toHaveBeenCalledWith('alex@prepwise.ai')

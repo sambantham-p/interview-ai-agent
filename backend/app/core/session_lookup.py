@@ -19,7 +19,10 @@ async def get_interview_session_or_404(
     `for_update=True` row-locks the session for the rest of the transaction and
     needed by the turn-processing path, where two concurrent turns for the
     same session would otherwise both read the same `github_call_count`
-    (or transcript) before either writes it back.
+    (or transcript) before either writes it back. It takes a "no key
+    update" lock: still exclusive between two turns, but it doesn't block
+    the foreign-key check of an `llm_calls` row, which the LLM Gateway logs
+    on its own connection while the turn's transaction is still open.
 
     A session belonging to a different user raises the same
     `InterviewSessionNotFoundError` as a missing id - deliberately
@@ -27,7 +30,7 @@ async def get_interview_session_or_404(
     to probe which session ids belong to someone else.
     """
     session = (
-        await db.get(InterviewSession, session_id, with_for_update=True)
+        await db.get(InterviewSession, session_id, with_for_update={"key_share": True})
         if for_update
         else await db.get(InterviewSession, session_id)
     )

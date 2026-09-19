@@ -3,10 +3,12 @@ import { useMutation } from '@tanstack/react-query'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { AuthLayout } from './AuthLayout'
 import { OtpVerificationForm } from '../../components/ui/OtpVerificationForm'
+import { CheckCircleIcon } from '../../components/ui/icons'
 import { SuccessCard } from '../../components/ui/SuccessCard'
 import { useAuth } from '../../lib/authContext'
 import { PASSWORD_RESET_EXPIRY_MINUTES } from '../../lib/authConstants'
 import { toErrorMessage } from '../../lib/errorMessage'
+import { useToast } from '../../lib/toastContext'
 
 function readDevOtp(state: unknown): string {
   if (typeof state !== 'object' || state === null || !('devOtp' in state)) return ''
@@ -19,6 +21,7 @@ export function ResetCodePage() {
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const { verifyResetCode, forgotPassword } = useAuth()
+  const { showToast } = useToast()
 
   const email = searchParams.get('email') || ''
   const devOtp = readDevOtp(location.state)
@@ -74,8 +77,9 @@ export function ResetCodePage() {
     setValidationError(null)
     try {
       await forgotPassword(email)
+      showToast('A new reset code has been sent.')
     } catch (err: unknown) {
-      setValidationError(toErrorMessage(err, 'Failed to resend code.'))
+      showToast(toErrorMessage(err, 'Failed to resend code.'), 'error')
     } finally {
       setIsResending(false)
     }
@@ -94,15 +98,14 @@ export function ResetCodePage() {
           </>
         }
         extraContent={
-         
-          <div className="bg-[#ddf6f1] flex flex-col gap-2 p-5 rounded-[10px]">
-            <p aria-hidden="true" className="text-brand text-[24px] leading-none">
-              ✓
-            </p>
-            <p className="text-ink text-[14px] font-medium">Check your inbox</p>
-            <p className="text-muted text-[13px] leading-relaxed">
-              The code expires in {PASSWORD_RESET_EXPIRY_MINUTES} minutes.
-            </p>
+          <div className="bg-[#ddf6f1] flex items-start gap-3 p-4 rounded-[10px]">
+            <CheckCircleIcon className="mt-0.5 h-5 w-5 shrink-0 text-brand" />
+            <div className="flex flex-col gap-0.5">
+              <p className="text-ink text-[14px] font-medium">Check your inbox</p>
+              <p className="text-muted text-[13px] leading-relaxed">
+                The code expires in {PASSWORD_RESET_EXPIRY_MINUTES} minutes.
+              </p>
+            </div>
           </div>
         }
         devOtp={devOtp}

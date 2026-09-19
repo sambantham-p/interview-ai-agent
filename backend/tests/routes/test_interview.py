@@ -25,6 +25,8 @@ def _fake_session(**overrides) -> InterviewSession:
         "red_flag_count": 0,
         "red_flag_warning_issued": False,
         "hint_counts": {},
+        "selected_phases": [],
+        "phase_time_budget": {},
         "created_at": datetime(2026, 1, 1, tzinfo=UTC),
     }
     defaults.update(overrides)

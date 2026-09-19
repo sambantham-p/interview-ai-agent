@@ -1,5 +1,7 @@
 import { Link } from 'react-router'
 import { AppShell } from '../../components/AppShell'
+import { getDisplayName } from '../../lib/displayName'
+import { PageIntro } from '../../components/ui/PageIntro'
 import { Badge } from '../../components/ui/Badge'
 import { Card } from '../../components/ui/Card'
 import { EmptyState } from '../../components/ui/EmptyState'
@@ -62,24 +64,11 @@ export function DashboardPage() {
   const completed = interviews?.filter((s) => s.status === 'completed').length ?? 0
 
   return (
-    <AppShell>
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-ink">
-            Welcome back{user ? `, ${user.name.split(' ')[0]}` : ''}
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            Pick up where you left off or run a fresh mock interview.
-          </p>
-        </div>
-        <Link
-          to="/setup"
-          className="inline-flex items-center gap-2 px-5 py-3 rounded-[10px] bg-navy text-white text-[14px] font-semibold hover:bg-[#112d4e] active:scale-[0.99] transition-all shadow-sm"
-        >
-          <SparkleIcon className="w-4 h-4" />
-          Start an interview
-        </Link>
-      </div>
+    <AppShell title="Dashboard">
+      <PageIntro
+        title={`Welcome back${user ? `, ${getDisplayName(user)}` : ''}`}
+        description="Pick up where you left off, or run a fresh mock interview tailored to your resume and the role you're targeting."
+      />
 
       {!isLoading && !isError && interviews && interviews.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6">

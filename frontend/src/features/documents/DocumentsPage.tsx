@@ -1,8 +1,10 @@
 import { AppShell } from '../../components/AppShell'
+import { PageIntro } from '../../components/ui/PageIntro'
 import { Badge } from '../../components/ui/Badge'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { ErrorState } from '../../components/ui/ErrorState'
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton'
+import { StatTile } from '../../components/ui/StatTile'
 import { BriefcaseIcon, DocumentIcon } from '../../components/ui/icons'
 import { MissingNotice } from '../../components/ui/MissingNotice'
 import { DocumentCard } from './DocumentCard'
@@ -89,12 +91,28 @@ export function DocumentsPage() {
   const jds = useJobDescriptions()
 
   return (
-    <AppShell>
-      <h1 className="text-2xl font-bold text-ink">Documents</h1>
-      <p className="mt-1 text-sm text-muted">
-        Every resume and job description you've submitted. Deleting one also
-        deletes the completed interviews that used it, and their reports.
-      </p>
+    <AppShell title="Documents">
+      <PageIntro
+        title="Manage your resumes and job descriptions"
+        description="Your saved resumes and job descriptions. Pick any of them when you start an interview."
+      />
+
+      {resumes.data && jds.data && resumes.data.length + jds.data.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6">
+          <StatTile
+            icon={<DocumentIcon className="w-5 h-5" />}
+            label="Resumes"
+            value={resumes.data.length}
+            tone="brand"
+          />
+          <StatTile
+            icon={<BriefcaseIcon className="w-5 h-5" />}
+            label="Job descriptions"
+            value={jds.data.length}
+            tone="navy"
+          />
+        </div>
+      )}
 
       <section className="mt-8">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-muted uppercase tracking-wide mb-3">
