@@ -16,7 +16,6 @@ elevenlabs==2.66.0
 pypdf==6.18.0
 reportlab==5.0.1
 
-fastembed==0.8.0
 
 # WARNING: Do not blindly upgrade mcp past 1.30.0; 2.x conflicts with the pinned FastAPI/Starlette/httpx stack.
 mcp==1.30.0

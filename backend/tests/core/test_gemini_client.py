@@ -15,6 +15,7 @@ from app.core.gemini_client import (
     GeminiTransientError,
     MediaResolution,
     build_file_input,
+    embed_content,
     extract_structured,
     get_gemini_client,
     run_tool_loop,
@@ -955,3 +956,52 @@ async def test_generate_speech_skips_parts_without_audio(mocker: MockerFixture) 
     mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
 
     assert await generate_speech(model="tts", text="Hi", voice_name="Kore") == b"pcm"
+
+
+async def test_embed_content_returns_the_vector_and_sends_dimensions(
+    mocker: MockerFixture,
+) -> None:
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.embed_content = mocker.AsyncMock(
+        return_value=types.EmbedContentResponse(
+            embeddings=[types.ContentEmbedding(values=[0.1, 0.2])]
+        )
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    result = await embed_content(
+        model="m", text="hi", task_type="RETRIEVAL_QUERY", dimensions=2
+    )
+
+    assert result == [0.1, 0.2]
+    config = fake_client.aio.models.embed_content.await_args.kwargs["config"]
+    assert config.output_dimensionality == 2
+    assert config.task_type == "RETRIEVAL_QUERY"
+
+
+async def test_embed_content_maps_transient_failures(mocker: MockerFixture) -> None:
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.embed_content = mocker.AsyncMock(
+        side_effect=httpx.ConnectError("down")
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    with pytest.raises(GeminiTransientError):
+        await embed_content(
+            model="m", text="hi", task_type="RETRIEVAL_QUERY", dimensions=2
+        )
+
+
+async def test_embed_content_reraises_non_transient_failures(
+    mocker: MockerFixture,
+) -> None:
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.embed_content = mocker.AsyncMock(
+        side_effect=ValueError("bad request")
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    with pytest.raises(ValueError):
+        await embed_content(
+            model="m", text="hi", task_type="RETRIEVAL_QUERY", dimensions=2
+        )

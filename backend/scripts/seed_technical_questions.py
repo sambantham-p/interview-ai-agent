@@ -498,7 +498,9 @@ async def main() -> None:
     async with get_session_factory()() as db:
         await db.execute(delete(TechnicalQuestion))
         for entry in QUESTIONS:
-            embedding = await embed_text(entry["question_text"])
+            embedding = await embed_text(
+                entry["question_text"], task_type="RETRIEVAL_DOCUMENT"
+            )
             db.add(TechnicalQuestion(**entry, embedding=embedding))
         await db.commit()
     logger.info("seed_technical_questions.done", count=len(QUESTIONS))

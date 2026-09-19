@@ -29,6 +29,7 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ.setdefault("GEMINI_JUDGE_MODEL", "gemini-3.1-pro-preview")
     os.environ.setdefault("GEMINI_STT_MODEL", "gemini-3.5-transcribe")
     os.environ.setdefault("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview")
+    os.environ.setdefault("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
     os.environ.setdefault("ELEVENLABS_API_KEY", "test-key")
     os.environ.setdefault("ELEVENLABS_VOICE_ID", "test-voice-id")
     os.environ.setdefault("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")

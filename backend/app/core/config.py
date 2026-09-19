@@ -91,6 +91,7 @@ class GatewaySettings(BaseSettings):
     gemini_judge_model: str
     gemini_stt_model: str
     gemini_tts_model: str
+    gemini_embedding_model: str
 
     def model_for_task(self, task: str) -> str:
         routes = {
