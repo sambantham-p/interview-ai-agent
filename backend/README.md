@@ -16,7 +16,7 @@ it.
 | Vector search (RAG — technical-question bank only, not GitHub content) | `pgvector` on Postgres |
 | LLM provider | Google Gemini (`google-genai` — chat, native audio STT) |
 | Voice TTS | ElevenLabs |
-| Resume parsing | Gemini native PDF input (`google-genai`), not `pypdf` |
+| Resume parsing | Gemini native PDF input (`google-genai`) for content; `pypdf` only to read hyperlink targets (the stored `github_url` comes from the PDF's links, not the LLM) |
 | GitHub grounding (Interview Phase 2) | live tool-calling — Gemini native function calling over an `httpx` GitHub REST client, no embeddings/vector index, scoped to the candidate's own account only |
 | Company research (Phases 6/7) | real MCP client (`mcp` SDK) against Parallel's public Search MCP server — no API key |
 | Technical-question RAG embeddings (Phases 3/4/5) | local `nomic-embed-text-v1.5` via `fastembed` (ONNX, no `torch`) |
@@ -60,11 +60,16 @@ backend/
 │   │                               #   judge_evaluation, interview_report
 │   ├── schemas/                   # request/response Pydantic models — response.py, resume.py, jd.py,
 │   │                               #   interview.py, judge.py, voice.py
-│   ├── routes/                    # health.py, resume.py (upload + list), jd.py (submit + list),
-│   │                               #   interview.py (list/start/turn/report), voice.py
+│   ├── routes/                    # health.py, resume.py (upload + list + delete), jd.py (submit + list + delete),
+│   │                               #   interview.py (list/presets/start/turn/report), voice.py
 │   ├── services/                  # business logic — resume_service, jd_service, interview_service +
 │   │                               #   interview_prompts (the 7-phase Interviewer agent), judge_service +
-│   │                               #   judge_prompts (the 5 post-hoc Judges), question_bank_service (RAG)
+│   │                               #   judge_prompts (the 5 post-hoc Judges), question_bank_service (RAG),
+│   │                               #   (interview_service.start_interview commits the session before any LLM call so Gateway logging's FK holds)
+│   │                               #   interview_presets (preset/duration → phases + per-phase time budget),
+│   │                               #   (resume_service/jd_service reject junk with a specific user-facing reason;
+│   │                               #   the resume/JD response DTOs add computed missing_sections / missing_details),
+│   │                               #   document_service (duplicate detection + delete for resumes/JDs)
 │   └── utils/                     # generic, framework-agnostic helpers
 ├── scripts/
 │   └── seed_technical_questions.py   # one-off seed for the RAG question bank (not an Alembic migration)

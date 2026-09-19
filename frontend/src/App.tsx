@@ -13,7 +13,7 @@ import { ResetCodePage } from './features/auth/ResetCodePage'
 import { NewPasswordPage } from './features/auth/NewPasswordPage'
 import { DashboardPage } from './features/dashboard/DashboardPage'
 import { DocumentsPage } from './features/documents/DocumentsPage'
-import { ResumeUploadPage } from './features/resume-upload/ResumeUploadPage'
+import { SetupWizardPage } from './features/setup/SetupWizardPage'
 import { InterviewChatPage } from './features/interview-chat/InterviewChatPage'
 import { CodingChallengePage } from './features/coding-challenge/CodingChallengePage'
 import { ReportPage } from './features/report/ReportPage'
@@ -185,7 +185,7 @@ export function App() {
             path="/setup"
             element={
               <RequireAuthRoute>
-                <ResumeUploadPage />
+                <SetupWizardPage />
               </RequireAuthRoute>
             }
           />

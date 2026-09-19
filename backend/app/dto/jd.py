@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 SENIORITY_LEVELS = ["intern", "entry", "mid", "senior", "fresher"]
 
@@ -67,3 +67,13 @@ class JobDescriptionResponse(BaseModel):
     tech_stack: list[str]
     coding_assessment_expected: bool
     created_at: datetime
+
+    @computed_field
+    @property
+    def missing_details(self) -> list[str]:
+        """Return details that are missing from the job posting.
+
+        Role, seniority, and tech stack are required for a saved JD, so only
+        optional fields such as the company name can be reported as missing.
+        """
+        return [] if self.company_name else ["Company name"]

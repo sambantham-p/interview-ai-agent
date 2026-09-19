@@ -113,7 +113,9 @@ def test_submit_jd_returns_422_for_a_bare_title_submitted_as_full_text(
     )
 
     assert response.status_code == 422
-    assert "bare title" in response.json()["error"]["message"]
+    assert (
+        "too short to be a full job description" in response.json()["error"]["message"]
+    )
     fake_extract_structured.assert_not_awaited()
 
 
@@ -127,7 +129,7 @@ def test_submit_jd_returns_422_for_a_too_short_short_description(
     response = authed_client.post("/api/v1/jd", json={"short_description": "Engineer"})
 
     assert response.status_code == 422
-    assert "too short" in response.json()["error"]["message"]
+    assert "too short to identify a role" in response.json()["error"]["message"]
     fake_extract_structured.assert_not_awaited()
 
 
@@ -137,7 +139,7 @@ def test_submit_jd_returns_422_when_required_fields_are_missing(
     mocker.patch(
         "app.routes.jd.parse_and_persist_job_description",
         side_effect=JobDescriptionExtractionError(
-            "Could not determine: tech_stack - add more detail to the job description"
+            "This job description is missing details we need: at least one required technology or skill."
         ),
         new_callable=mocker.AsyncMock,
     )
@@ -145,7 +147,7 @@ def test_submit_jd_returns_422_when_required_fields_are_missing(
     response = authed_client.post("/api/v1/jd", json={"full_text": "a real JD"})
 
     assert response.status_code == 422
-    assert "Could not determine" in response.json()["error"]["message"]
+    assert "missing details" in response.json()["error"]["message"]
 
 
 def test_submit_jd_returns_503_for_a_transient_gemini_failure(
@@ -240,3 +242,34 @@ def test_get_job_descriptions_returns_empty_list_when_user_has_none(
 
     assert response.status_code == 200
     assert response.json()["data"] == []
+
+
+def test_submit_jd_returns_409_for_a_duplicate(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    from app.services.document_service import DuplicateDocumentError
+
+    mocker.patch(
+        "app.routes.jd.parse_and_persist_job_description",
+        new_callable=mocker.AsyncMock,
+        side_effect=DuplicateDocumentError(
+            "This job description has already been uploaded."
+        ),
+    )
+
+    response = authed_client.post(
+        "/api/v1/jd", json={"short_description": "AI Engineer mid"}
+    )
+
+    assert response.status_code == 409
+
+
+def test_delete_jd_returns_the_deleted_id(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    mocker.patch("app.routes.jd.delete_document", new_callable=mocker.AsyncMock)
+
+    response = authed_client.delete("/api/v1/jd/9")
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {"id": 9}

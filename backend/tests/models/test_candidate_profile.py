@@ -13,6 +13,7 @@ def test_table_name_and_columns() -> None:
         "projects",
         "skills",
         "github_url",
+        "content_hash",
         "created_at",
     }
 

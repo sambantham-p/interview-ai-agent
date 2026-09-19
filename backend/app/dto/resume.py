@@ -1,11 +1,12 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 DATE_FIELD_DESCRIPTION = (
-    "Date as YYYY-MM, or YYYY if the resume doesn't state a month. Never "
-    "guess a month/day that isn't stated, and never include units, "
-    "reasoning, or alternate formats - output only the date string itself."
+    "The date exactly as written on the resume, character for character "
+    "(e.g. 'Sept 2025', '2021', or 'Present'). Do not reformat, expand, "
+    "or abbreviate month names, or infer any unstated month or year. "
+    "Output only the date text itself, with no reasoning or units."
 )
 
 
@@ -51,10 +52,48 @@ class ProjectEntry(BaseModel):
     )
 
 
+RESUME_SECTION_LABELS = {
+    "education": "Education",
+    "experience": "Work experience",
+    "projects": "Projects",
+    "skills": "Skills",
+    "github_url": "GitHub profile link",
+}
+
+
+def missing_resume_sections(profile: object) -> list[str]:
+    """Labels for every section absent from a parsed resume."""
+    return [
+        label
+        for attribute, label in RESUME_SECTION_LABELS.items()
+        if not getattr(profile, attribute)
+    ]
+
+
 class ResumeExtraction(BaseModel):
     """Structured-output schema for resume parsing - fields must match
     CandidateProfile's JSONB columns, since this is persisted directly.
+
+    looks_like_resume=False means the document isn't a resume/CV at all,
+    so the caller can reject it with rejection_reason instead of saving
+    whatever the model scraped out of it.
     """
+
+    looks_like_resume: bool = Field(
+        default=True,
+        description=(
+            "False if this document is not a resume or CV at all (an invoice, "
+            "article, form, blank page, random text, another person's "
+            "document ). True for any resume, however sparse."
+        ),
+    )
+    rejection_reason: str | None = Field(
+        default=None,
+        description=(
+            "Only when looks_like_resume is false: one plain, friendly "
+            "sentence saying what the document appears to be instead."
+        ),
+    )
 
     education: list[EducationEntry]
     experience: list[ExperienceEntry]
@@ -77,3 +116,9 @@ class ResumeUploadResponse(BaseModel):
     skills: list[str]
     github_url: str | None
     created_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def missing_sections(self) -> list[str]:
+        """Sections the resume didn't contain, so the UI can say so."""
+        return missing_resume_sections(self)

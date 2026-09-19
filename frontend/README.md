@@ -8,7 +8,8 @@ the `health-check/` page. **Auth (login, signup, email OTP verification,
 forgot/reset password) is now real, built, and tested** — see
 [Authentication](#authentication) below. **Frontend Finalization is
 underway as 5 reviewable checkpoints (see root `CLAUDE.md`'s Stage 5
-entry) — Checkpoint 1 done:** `dashboard/` and `documents/` are now real
+entry) — Checkpoints 1 and 2 done (Checkpoint 2: the `/setup` onboarding
+wizard, with resume/JD previews, delete and duplicate handling):** `dashboard/` and `documents/` are now real
 pages (behind a new `AppShell` sidebar shell), and the authenticated
 landing route is `/dashboard`, not `/setup`. Checkpoint 1 also locked a
 small set of reusable visual-polish primitives (icon set, `Card`'s
@@ -94,10 +95,15 @@ frontend/                            # ✓ = real, built and verified; everythin
 │   │   │   ├── DashboardPage.tsx      #   recent interviews (GET /interview) + start-interview CTA
 │   │   │   └── DashboardPage.test.tsx
 │   │   ├── documents/              # ✓ REAL (Checkpoint 1) — /documents
-│   │   │   ├── DocumentsPage.tsx      #   resumes (GET /resume) + JDs (GET /jd), status/preview only
+│   │   │   ├── DocumentsPage.tsx      #   resumes (GET /resume) + JDs (GET /jd) with delete
+│   │   │   ├── DocumentCard.tsx       #   list card + DeleteControls
 │   │   │   └── DocumentsPage.test.tsx
-│   │   ├── resume-upload/         # placeholder — folds into Checkpoint 2's onboarding wizard at /setup
-│   │   │   └── ResumeUploadPage.tsx
+│   │   ├── setup/                 # Checkpoint 2 onboarding wizard at /setup
+│   │   │   ├── SetupWizardPage.tsx    #   5 steps behind a connected Stepper
+│   │   │   ├── ResumeStep / JobDescriptionStep / PresetStep / MicCheckStep / LobbyStep
+│   │   │   ├── LobbyStep / LobbyStarting.tsx # lobby: start request runs during a countdown ring, then a "preparing" checklist
+│   │   │   ├── DocumentPreviewCard.tsx#   preview shell (header, stats row, delete + Change)
+│   │   │   └── DocumentPreviews.tsx   #   resume/JD preview content
 │   │   ├── interview-chat/        # placeholder — Phases 1,2,3,5,6,7, one continuous view;
 │   │   │   └── InterviewChatPage.tsx  #   real logic + real-time voice land with Checkpoint 3
 │   │   ├── coding-challenge/      # placeholder, SLATED FOR REMOVAL in Checkpoint 3 — Phase 4 is
@@ -109,6 +115,9 @@ frontend/                            # ✓ = real, built and verified; everythin
 │   │   │                          #   shell (dashboard/documents/report); the live interview stays
 │   │   │                          #   full-bleed dark and does NOT use this shell (see CLAUDE.md's
 │   │   │                          #   two-track design note under Stage 5)
+│   │   ├── ui/MissingNotice.tsx   # ✓ "Not found in this resume: …" amber note (setup preview + Documents cards)
+│   │   ├── ui/DeleteControls.tsx  # ✓ the one delete UI (confirm → "Deleting…" → error); ui/Spinner.tsx,
+│   │   │                          #   ui/Stepper.tsx (connected progress nodes)
 │   │   ├── Navigation.tsx         # ✓ top nav for the pre-auth "marketing" pages (landing, 404) —
 │   │   │                          #   AppShell's UserMenu is the equivalent inside the workspace
 │   │   ├── RootErrorBoundary.tsx  # ✓ root-level render-crash fallback (see Error handling below)
@@ -131,7 +140,8 @@ frontend/                            # ✓ = real, built and verified; everythin
 │   │   ├── api.ts                 # ✓ fetch wrapper: unwraps {success, data, error}, throws on error
 │   │   ├── authContext.tsx        # ✓ AuthProvider/useAuth — session state, all /auth/* calls
 │   │   ├── queries.ts             # ✓ REAL (Checkpoint 1) — shared TanStack Query hooks
-│   │   │                          #   (useResumes/useJobDescriptions/useInterviews) used by more
+│   │   │                          #   (useResumes/useJobDescriptions/useInterviews/useInterviewPresets/
+│   │   │                          #   useDeleteDocument) used by more
 │   │   │                          #   than one feature — lives here, not in either feature folder,
 │   │   │                          #   per the "no cross-feature imports" rule below
 │   │   ├── interviewLabels.ts     # ✓ REAL (Checkpoint 1) — phase/status/end_reason → human labels
@@ -323,8 +333,8 @@ npm run test:watch    # vitest (watch mode)
 npm run test:coverage # vitest run --coverage
 ```
 
-- Test files live next to what they test (`ResumeUploadPage.tsx` →
-  `ResumeUploadPage.test.tsx`), not in a mirrored `tests/` tree — colocation
+- Test files live next to what they test (`SetupWizardPage.tsx` →
+  `SetupWizardPage.test.tsx`), not in a mirrored `tests/` tree — colocation
   applies to tests too, for the same reason it applies to hooks/helpers.
 - `@testing-library/react` + `@testing-library/user-event` for
   component tests — assert on what the user sees/does (rendered text,
@@ -390,7 +400,7 @@ trades away:
 |---|---|---|
 | `/dashboard` | `dashboard/` | ✓ real (Checkpoint 1) — authenticated landing route |
 | `/documents` | `documents/` | ✓ real (Checkpoint 1) |
-| `/setup` | `resume-upload/` | placeholder — becomes the Checkpoint 2 onboarding wizard (resume → JD → preset/duration picker → mic check → lobby) |
+| `/setup` | `setup/` | onboarding wizard: resume → JD → preset/duration picker → mic check → lobby → starts the interview |
 | `/interview/:sessionId` | `interview-chat/` | placeholder — Phases 1, 2, 3, 5, 6, 7 (all dialogue phases, one continuous view — matches the single persistent Interviewer agent, no page break per phase), real logic + real-time voice land in Checkpoint 3 |
 | `/interview/:sessionId/coding` | `coding-challenge/` | placeholder, **removed in Checkpoint 3** — Phase 4 folds into `interview-chat/`, no separate route (only ever rendered if the JD implied a coding assessment) |
 | `/interview/:sessionId/report` | `report/` | placeholder — real logic + PDF export land in Checkpoint 4 |

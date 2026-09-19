@@ -9,7 +9,7 @@ from google.genai import types
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.constants.interview import HINT_PENALTY_BY_LEVEL
+from app.constants.interview import FINISHED_SESSION_STATUSES, HINT_PENALTY_BY_LEVEL
 from app.constants.judge import (
     ATTITUDE_ABUSIVE_LANGUAGE_SCORE_CAP,
     JUDGE_ATTITUDE,
@@ -259,7 +259,7 @@ async def generate_report(
     session object itself to build the response, so fetching it a second
     time here would be a redundant round-trip.
     """
-    if session.status not in ("completed", "ended_early"):
+    if session.status not in FINISHED_SESSION_STATUSES:
         raise InterviewSessionNotReadyForReportError(
             f"Interview session {session.id} is {session.status}, not ready for a report"
         )

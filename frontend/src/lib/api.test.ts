@@ -150,3 +150,32 @@ describe('api.get', () => {
     await expect(api.get('/health')).rejects.toBeInstanceOf(ApiRequestError)
   })
 })
+
+describe('api.upload', () => {
+  it('sends FormData without forcing a JSON content type', async () => {
+    mockFetchOnce({ success: true, status: 'ok', status_code: 200, data: { id: 1 } })
+    const form = new FormData()
+    form.append('file', new File(['x'], 'a.pdf'))
+
+    const result = await api.upload('/resume/upload', form)
+
+    expect(result).toEqual({ id: 1 })
+    const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe(form)
+    expect(init.headers['Content-Type']).toBeUndefined()
+  })
+})
+
+describe('api.delete', () => {
+  it('sends a DELETE request and unwraps the envelope', async () => {
+    mockFetchOnce({ success: true, status: 'ok', status_code: 200, data: { id: 3 } })
+
+    const result = await api.delete('/resume/3')
+
+    expect(result).toEqual({ id: 3 })
+    const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toContain('/resume/3')
+    expect(init.method).toBe('DELETE')
+  })
+})
