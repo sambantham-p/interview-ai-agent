@@ -35,12 +35,16 @@ export function useInterviews() {
   })
 }
 
-export function useInterview(sessionId: string | undefined) {
+export function useInterview(
+  sessionId: string | undefined,
+  options: { refetchOnMount?: 'always' } = {},
+) {
   return useQuery({
     queryKey: ['interview', sessionId],
     queryFn: () => api.get<InterviewDetail>(`/interview/${sessionId}`),
     enabled: Boolean(sessionId),
     staleTime: Infinity,
+    ...options,
   })
 }
 

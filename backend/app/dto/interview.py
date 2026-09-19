@@ -123,6 +123,7 @@ class InterviewTurnResponse(BaseModel):
     phase_time_status: str | None
     max_answer_seconds: int
     server_time: datetime
+    ended_at: datetime | None
 
     @classmethod
     def from_session(cls, session: object) -> "InterviewTurnResponse":
@@ -149,6 +150,7 @@ class InterviewTurnResponse(BaseModel):
             phase_time_status=time_status,
             max_answer_seconds=max_answer_seconds(session.duration_minutes),
             server_time=now,
+            ended_at=session.ended_at,
         )
 
 
@@ -181,7 +183,6 @@ class InterviewSessionDetail(InterviewTurnResponse):
     job_role: str
     company_name: str | None
     created_at: datetime
-    ended_at: datetime | None
     transcript: list[TranscriptEntry]
 
 
@@ -210,7 +211,6 @@ def build_session_detail(
         job_role=job_description.role,
         company_name=job_description.company_name,
         created_at=session.created_at,
-        ended_at=session.ended_at,
         transcript=entries,
     )
 

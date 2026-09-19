@@ -113,6 +113,7 @@ export interface InterviewTurn {
   phase_time_status: PhaseTimeStatus | null
   max_answer_seconds: number
   server_time: string
+  ended_at: string | null
 }
 
 export type InterviewStartResponse = InterviewTurn
@@ -131,7 +132,6 @@ export interface InterviewDetail extends InterviewTurn {
   job_role: string
   company_name: string | null
   created_at: string
-  ended_at: string | null
   transcript: TranscriptEntry[]
 }
 

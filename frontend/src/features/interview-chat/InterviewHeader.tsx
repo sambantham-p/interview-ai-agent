@@ -9,6 +9,8 @@ interface InterviewHeaderProps {
   interview: InterviewDetail
   voiceOn: boolean
   onToggleVoice: () => void
+  isClockHeld?: boolean
+  restartClock?: boolean
 }
 
 function PhaseTimerChip({ interview }: { interview: InterviewDetail }) {
@@ -29,7 +31,16 @@ function PhaseTimerChip({ interview }: { interview: InterviewDetail }) {
   )
 }
 
-export function InterviewHeader({ interview, voiceOn, onToggleVoice }: InterviewHeaderProps) {
+export function InterviewHeader({
+  interview,
+  voiceOn,
+  onToggleVoice,
+  isClockHeld = false,
+  restartClock = false,
+}: InterviewHeaderProps) {
+  const clockInterview = restartClock
+    ? { ...interview, phase_started_at: interview.server_time }
+    : interview
   const phases = interview.selected_phases
   const phaseNumber = phases.indexOf(interview.current_phase) + 1
 
@@ -57,7 +68,7 @@ export function InterviewHeader({ interview, voiceOn, onToggleVoice }: Interview
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <PhaseTimerChip key={interview.server_time} interview={interview} />
+          {!isClockHeld && <PhaseTimerChip key={interview.server_time} interview={clockInterview} />}
           <button
             type="button"
             onClick={onToggleVoice}

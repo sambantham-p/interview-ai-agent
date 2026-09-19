@@ -28,6 +28,7 @@ export function buildTurn(overrides: Partial<InterviewTurn> = {}): InterviewTurn
     phase_time_status: 'comfortable',
     max_answer_seconds: 300,
     server_time: '2026-01-01T10:01:00Z',
+    ended_at: null,
     ...overrides,
   }
 }
@@ -51,7 +52,6 @@ export function buildDetail(overrides: Partial<InterviewDetail> = {}): Interview
     job_role: 'Backend Engineer',
     company_name: 'Acme',
     created_at: '2026-01-01T10:00:00Z',
-    ended_at: null,
     transcript: [
       buildEntry({ index: 1 }),
       buildEntry({ index: 2, role: 'user', text: 'I build APIs.' }),

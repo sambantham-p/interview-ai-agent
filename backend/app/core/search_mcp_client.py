@@ -1,5 +1,6 @@
 import time
 
+import httpx
 import structlog
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -37,9 +38,14 @@ async def search_company_context(*, company_name: str, role: str) -> str:
     start_time = time.monotonic()
     try:
         async with (
-            streamable_http_client(
-                SEARCH_MCP_URL, timeout=SEARCH_MCP_TIMEOUT_SECONDS
-            ) as (read_stream, write_stream, _),
+            httpx.AsyncClient(
+                timeout=SEARCH_MCP_TIMEOUT_SECONDS, follow_redirects=True
+            ) as http_client,
+            streamable_http_client(SEARCH_MCP_URL, http_client=http_client) as (
+                read_stream,
+                write_stream,
+                _,
+            ),
             ClientSession(read_stream, write_stream) as session,
         ):
             await session.initialize()
