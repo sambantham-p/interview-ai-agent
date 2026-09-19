@@ -14,9 +14,20 @@ from app.core.responses import error_response, success_response
 from app.dto.resume import ResumeUploadResponse
 from app.models.user import User
 from app.routes.auth import get_current_user
-from app.services.resume_service import parse_and_persist_resume
+from app.services.resume_service import list_resumes, parse_and_persist_resume
 
 router = APIRouter(tags=["resume"])
+
+
+@router.get("/resume", response_model=list[ResumeUploadResponse])
+async def get_resumes(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> JSONResponse:
+    """List the current user's uploaded resumes, newest first."""
+    profiles = await list_resumes(user.id, db)
+    data = [ResumeUploadResponse.model_validate(p) for p in profiles]
+    return success_response(data=data, status_code=httpx.codes.OK)
 
 
 @router.post("/resume/upload", response_model=ResumeUploadResponse)

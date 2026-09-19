@@ -1,4 +1,5 @@
 from google.genai import types
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants.gemini import GEMINI_JD_EXTRACTION_SEED
@@ -115,3 +116,17 @@ async def parse_and_persist_job_description(
     await db.commit()
     await db.refresh(jd)
     return jd
+
+
+async def list_job_descriptions(user_id: str, db: AsyncSession) -> list[JobDescription]:
+    """Every job description the given user has submitted, newest first.
+
+    job_descriptions is insert-only , so this is a plain history list,
+    not a "current JD" lookup.
+    """
+    result = await db.execute(
+        select(JobDescription)
+        .where(JobDescription.user_id == user_id)
+        .order_by(JobDescription.created_at.desc())
+    )
+    return list(result.scalars().all())

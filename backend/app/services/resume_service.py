@@ -1,3 +1,4 @@
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants.gemini import GEMINI_RESUME_EXTRACTION_SEED
@@ -100,3 +101,17 @@ async def parse_and_persist_resume(
     await db.commit()
     await db.refresh(profile)
     return profile
+
+
+async def list_resumes(user_id: str, db: AsyncSession) -> list[CandidateProfile]:
+    """Every resume the given user has uploaded, newest first.
+
+    candidate_profiles is insert-only , so this is a plain history list,
+    not a "current resume" lookup.
+    """
+    result = await db.execute(
+        select(CandidateProfile)
+        .where(CandidateProfile.user_id == user_id)
+        .order_by(CandidateProfile.created_at.desc())
+    )
+    return list(result.scalars().all())

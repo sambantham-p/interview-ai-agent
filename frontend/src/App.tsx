@@ -11,6 +11,8 @@ import { VerifyOtpPage } from './features/auth/VerifyOtpPage'
 import { ForgotPasswordPage } from './features/auth/ForgotPasswordPage'
 import { ResetCodePage } from './features/auth/ResetCodePage'
 import { NewPasswordPage } from './features/auth/NewPasswordPage'
+import { DashboardPage } from './features/dashboard/DashboardPage'
+import { DocumentsPage } from './features/documents/DocumentsPage'
 import { ResumeUploadPage } from './features/resume-upload/ResumeUploadPage'
 import { InterviewChatPage } from './features/interview-chat/InterviewChatPage'
 import { CodingChallengePage } from './features/coding-challenge/CodingChallengePage'
@@ -64,10 +66,10 @@ function HomePage() {
           <div className="mt-9 flex flex-col sm:flex-row items-center gap-3">
             {isAuthenticated && user ? (
               <Link
-                to="/setup"
+                to="/dashboard"
                 className="px-7 py-3.5 rounded-[10px] bg-brand text-[#06251f] text-[15px] font-semibold shadow-lg shadow-teal-900/30 hover:bg-[#14c3a8] active:scale-[0.99] transition-all"
               >
-                Start an interview
+                Go to dashboard
               </Link>
             ) : (
               <>
@@ -161,6 +163,22 @@ export function App() {
               <GuestOnlyRoute>
                 <NewPasswordPage />
               </GuestOnlyRoute>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <RequireAuthRoute>
+                <DashboardPage />
+              </RequireAuthRoute>
+            }
+          />
+          <Route
+            path="/documents"
+            element={
+              <RequireAuthRoute>
+                <DocumentsPage />
+              </RequireAuthRoute>
             }
           />
           <Route
