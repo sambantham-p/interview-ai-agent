@@ -340,6 +340,42 @@ async def _generate_plain(
     return response
 
 
+EmbeddingTaskType = Literal["RETRIEVAL_DOCUMENT", "RETRIEVAL_QUERY"]
+
+
+async def embed_content(
+    *,
+    model: str,
+    text: str,
+    task_type: EmbeddingTaskType,
+    dimensions: int,
+) -> list[float]:
+    """Embeds one string with a Gemini embedding model, truncated to
+    `dimensions` so it fits the pgvector column. Gemini-side failures map
+    to GeminiTransientError, the same way extract_structured() does.
+    """
+    client = get_gemini_client()
+    log = logger.bind(model=model)
+    start_time = time.monotonic()
+    try:
+        response = await client.aio.models.embed_content(
+            model=model,
+            contents=text,
+            config=types.EmbedContentConfig(
+                task_type=task_type, output_dimensionality=dimensions
+            ),
+        )
+    except Exception as exc:
+        log.exception(
+            "embed_content.error", duration_seconds=time.monotonic() - start_time
+        )
+        if _is_transient(exc):
+            raise GeminiTransientError(str(exc)) from exc
+        raise
+    (embedding,) = response.embeddings or []
+    return list(embedding.values or [])
+
+
 async def transcribe_audio(
     *,
     model: str,
