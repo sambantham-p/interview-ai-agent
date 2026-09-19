@@ -4,6 +4,7 @@ from typing import Any
 
 import structlog
 from google.genai import types
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants.github import (
@@ -268,11 +269,6 @@ async def submit_turn(
         )
         github_calls_made = 0
 
-    session = await get_interview_session_or_404(session_id, db, for_update=True)
-    if session.status != "in_progress":
-        raise InterviewSessionNotActiveError(
-            f"Interview session {session_id} is {session.status}, not accepting turns"
-        )
     session.github_call_count += github_calls_made
 
     reply = output.reply
@@ -340,3 +336,17 @@ async def submit_turn(
     await db.commit()
     await db.refresh(session)
     return session
+
+
+async def list_interview_sessions(
+    user_id: str, db: AsyncSession
+) -> list[InterviewSession]:
+    """Every interview session the given user has started, newest first -
+    powers the dashboard's recent-interviews list and the documents page.
+    """
+    result = await db.execute(
+        select(InterviewSession)
+        .where(InterviewSession.user_id == user_id)
+        .order_by(InterviewSession.created_at.desc())
+    )
+    return list(result.scalars().all())

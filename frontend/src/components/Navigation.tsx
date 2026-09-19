@@ -1,11 +1,10 @@
 import { Link, useNavigate } from 'react-router'
 import { PrepwiseLogo } from './ui/PrepwiseLogo'
+import { Avatar } from './ui/Avatar'
 import { useAuth } from '../lib/authContext'
 
 interface NavigationProps {
-  /** Renders over a dark hero instead of the default white app bar - used
-   * by every page with a dark `bg-hero` background (App.tsx's HomePage,
-   * NotFoundPage). */
+
   transparent?: boolean
 }
 
@@ -33,17 +32,11 @@ export function Navigation({ transparent = false }: NavigationProps) {
       <div className="flex items-center gap-4">
         {isAuthenticated && user ? (
           <div className="flex items-center gap-3">
-            {user.picture ? (
-              <img
-                src={user.picture}
-                alt={user.name}
-                className="w-8 h-8 rounded-full border border-mist object-cover"
-              />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-brand text-white font-semibold text-sm flex items-center justify-center">
-                {user.name.charAt(0).toUpperCase()}
-              </div>
-            )}
+            <Avatar
+              name={user.name}
+              picture={user.picture}
+              className="w-8 h-8 border border-mist text-sm"
+            />
             <div
               className={`hidden sm:flex flex-col text-left ${transparent ? 'text-white' : ''}`}
             >

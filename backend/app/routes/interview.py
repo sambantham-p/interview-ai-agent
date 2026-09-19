@@ -7,6 +7,7 @@ from app.core.db import get_db
 from app.core.responses import error_response, success_response
 from app.core.session_lookup import get_interview_session_or_404
 from app.dto.interview import (
+    InterviewSessionSummary,
     InterviewStartRequest,
     InterviewTurnRequest,
     InterviewTurnResponse,
@@ -18,6 +19,7 @@ from app.routes.auth import get_current_user
 from app.services.interview_service import (
     InterviewSessionNotActiveError,
     InterviewSessionNotFoundError,
+    list_interview_sessions,
     start_interview,
     submit_turn,
 )
@@ -30,6 +32,19 @@ from app.services.judge_service import (
 )
 
 router = APIRouter(tags=["Interview"])
+
+
+@router.get("/interview", response_model=list[InterviewSessionSummary])
+async def get_interviews(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> JSONResponse:
+    """List the current user's interview sessions, newest first and
+    the dashboard's recent-interviews list and the documents page.
+    """
+    sessions = await list_interview_sessions(user.id, db)
+    data = [InterviewSessionSummary.model_validate(s) for s in sessions]
+    return success_response(data=data, status_code=httpx.codes.OK)
 
 
 @router.post("/interview/start", response_model=InterviewTurnResponse)
