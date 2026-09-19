@@ -1,7 +1,6 @@
 import {
   AcademicCapIcon,
   BriefcaseIcon,
-  CheckCircleIcon,
   CodeIcon,
   FolderIcon,
   LinkIcon,
@@ -9,24 +8,11 @@ import {
 } from '../../components/ui/icons'
 import { MissingNotice } from '../../components/ui/MissingNotice'
 import type { JobDescription, Resume } from '../../types/api'
-import {
-  Chips,
-  PreviewSection,
-  Timeline,
-  type PreviewStat,
-} from './DocumentPreviewCard'
+import { Chips, PreviewSection, Timeline } from './DocumentPreviewCard'
 
 function dateRange(start: string | null, end: string | null): string | null {
   if (!start && !end) return null
   return `${start ?? '?'} – ${end ?? 'Present'}`
-}
-
-export function resumeStats(resume: Resume): PreviewStat[] {
-  return [
-    { icon: <BriefcaseIcon className="w-4.5 h-4.5" />, value: resume.experience.length, label: 'Roles', tone: 'navy' },
-    { icon: <FolderIcon className="w-4.5 h-4.5" />, value: resume.projects.length, label: 'Projects', tone: 'brand' },
-    { icon: <SparkleIcon className="w-4.5 h-4.5" />, value: resume.skills.length, label: 'Skills', tone: 'amber' },
-  ]
 }
 
 export function ResumePreview({ resume }: { resume: Resume }) {
@@ -92,24 +78,6 @@ export function ResumePreview({ resume }: { resume: Resume }) {
       )}
     </>
   )
-}
-
-export function jobDescriptionStats(jd: JobDescription): PreviewStat[] {
-  return [
-    {
-      icon: <BriefcaseIcon className="w-4.5 h-4.5" />,
-      value: <span className="capitalize">{jd.seniority}</span>,
-      label: 'Level',
-      tone: 'navy',
-    },
-    { icon: <CodeIcon className="w-4.5 h-4.5" />, value: jd.tech_stack.length, label: 'Technologies', tone: 'brand' },
-    {
-      icon: <CheckCircleIcon className="w-4.5 h-4.5" />,
-      value: jd.coding_assessment_expected ? 'Expected' : 'Not expected',
-      label: 'Coding round',
-      tone: 'amber',
-    },
-  ]
 }
 
 export function JobDescriptionPreview({ jd }: { jd: JobDescription }) {

@@ -1,18 +1,25 @@
 import { render, screen, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { AuthProvider, useAuth } from './authContext'
+import { useAuth } from './authContext'
+import { AuthProvider } from './AuthProvider'
 import { AUTH_TOKEN_STORAGE_KEY } from './api'
 
-const { mockGet, mockPost } = vi.hoisted(() => ({
-  mockGet: vi.fn(),
-  mockPost: vi.fn(),
+const { mockGet, mockPost, mockPatch, mockDelete, unauthorizedRef } = vi.hoisted(() => ({
+  mockGet: vi.fn<(...args: unknown[]) => unknown>(),
+  mockPost: vi.fn<(...args: unknown[]) => unknown>(),
+  mockPatch: vi.fn<(...args: unknown[]) => unknown>(),
+  mockDelete: vi.fn<(...args: unknown[]) => unknown>(),
+  unauthorizedRef: { handler: null as (() => void) | null },
 }))
 
 vi.mock('./api', async () => {
   const actual = await vi.importActual<typeof import('./api')>('./api')
   return {
     ...actual,
-    api: { get: mockGet, post: mockPost },
+    api: { get: mockGet, post: mockPost, patch: mockPatch, delete: mockDelete },
+    setUnauthorizedHandler: (handler: (() => void) | null) => {
+      unauthorizedRef.handler = handler
+    },
   }
 })
 
@@ -61,6 +68,8 @@ describe('AuthProvider', () => {
     localStorage.clear()
     mockGet.mockReset()
     mockPost.mockReset()
+    mockPatch.mockReset()
+    mockDelete.mockReset()
   })
 
   it('throws when useAuth is used outside an AuthProvider', () => {
@@ -170,12 +179,11 @@ describe('AuthProvider', () => {
       email: 'new@prepwise.ai',
       otp_sent: true,
       message: 'sent',
-      dev_otp: '123456',
     })
     const probe = renderWithProbe()
     await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
 
-    let result: { dev_otp?: string } | undefined
+    let result: { email: string } | undefined
     await act(async () => {
       result = await probe.ctx.registerWithEmail('New User', 'new@prepwise.ai', 'Prepwise#2026')
     })
@@ -185,7 +193,7 @@ describe('AuthProvider', () => {
       email: 'new@prepwise.ai',
       password: 'Prepwise#2026',
     })
-    expect(result?.dev_otp).toBe('123456')
+    expect(result?.email).toBe('new@prepwise.ai')
     expect(screen.getByTestId('authed').textContent).toBe('false')
   })
 
@@ -218,11 +226,11 @@ describe('AuthProvider', () => {
   })
 
   it('forgotPassword returns the response data', async () => {
-    mockPost.mockResolvedValueOnce({ message: 'sent', dev_otp: '654321' })
+    mockPost.mockResolvedValueOnce({ message: 'sent' })
     const probe = renderWithProbe()
     await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
 
-    let result: { dev_otp?: string } | undefined
+    let result: { message: string } | undefined
     await act(async () => {
       result = await probe.ctx.forgotPassword('alex@prepwise.ai')
     })
@@ -230,7 +238,7 @@ describe('AuthProvider', () => {
     expect(mockPost).toHaveBeenCalledWith('/auth/forgot-password', {
       email: 'alex@prepwise.ai',
     })
-    expect(result?.dev_otp).toBe('654321')
+    expect(result?.message).toBe('sent')
   })
 
   it('verifyResetCode returns the reset token', async () => {
@@ -332,6 +340,65 @@ describe('AuthProvider', () => {
 
     expect(screen.getByTestId('authed').textContent).toBe('false')
     expect(localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)).toBeNull()
+    expect(localStorage.getItem('prepwise_user')).toBeNull()
+  })
+  it('updatePreferredName stores the returned user', async () => {
+    mockPost.mockResolvedValueOnce({ user: fakeUser, token: 'a-token' })
+    mockPatch.mockResolvedValueOnce({ user: { ...fakeUser, preferred_name: 'Lex' } })
+    const probe = renderWithProbe()
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
+    await act(async () => {
+      await probe.ctx.loginWithEmail('alex@prepwise.ai', 'Prepwise#2026')
+    })
+
+    await act(async () => {
+      await probe.ctx.updatePreferredName('Lex')
+    })
+
+    expect(mockPatch).toHaveBeenCalledWith('/auth/me', { preferred_name: 'Lex' })
+    expect(probe.ctx.user?.preferred_name).toBe('Lex')
+    expect(JSON.parse(localStorage.getItem('prepwise_user') ?? '{}').preferred_name).toBe('Lex')
+  })
+
+  it('deleteAccount calls the API and signs the user out', async () => {
+    mockPost.mockResolvedValueOnce({ user: fakeUser, token: 'a-token' })
+    mockDelete.mockResolvedValueOnce({ message: 'deleted' })
+    const probe = renderWithProbe()
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
+    await act(async () => {
+      await probe.ctx.loginWithEmail('alex@prepwise.ai', 'Prepwise#2026')
+    })
+
+    await act(async () => {
+      await probe.ctx.deleteAccount()
+    })
+
+    expect(mockDelete).toHaveBeenCalledWith('/auth/me')
+    expect(screen.getByTestId('authed').textContent).toBe('false')
+    expect(localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)).toBeNull()
+  })
+
+  it('signs the user out when the API reports an unauthorized session', async () => {
+    mockPost.mockResolvedValueOnce({ user: fakeUser, token: 'a-token' })
+    const probe = renderWithProbe()
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
+    await act(async () => {
+      await probe.ctx.loginWithEmail('alex@prepwise.ai', 'Prepwise#2026')
+    })
+    expect(screen.getByTestId('authed').textContent).toBe('true')
+
+    act(() => unauthorizedRef.handler?.())
+
+    expect(screen.getByTestId('authed').textContent).toBe('false')
+  })
+
+  it('clears a stored user that has no matching token', async () => {
+    localStorage.setItem('prepwise_user', JSON.stringify(fakeUser))
+
+    renderWithProbe()
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
+
+    expect(screen.getByTestId('authed').textContent).toBe('false')
     expect(localStorage.getItem('prepwise_user')).toBeNull()
   })
 })

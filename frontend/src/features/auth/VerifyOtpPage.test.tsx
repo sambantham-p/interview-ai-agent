@@ -5,8 +5,8 @@ import { VerifyOtpPage } from './VerifyOtpPage'
 import { renderWithQueryClient } from '../../test/renderWithQueryClient'
 
 const { mockVerifyOtp, mockResendOtp } = vi.hoisted(() => ({
-  mockVerifyOtp: vi.fn(),
-  mockResendOtp: vi.fn(),
+  mockVerifyOtp: vi.fn<(...args: unknown[]) => unknown>(),
+  mockResendOtp: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../../lib/authContext', () => ({
@@ -62,12 +62,6 @@ describe('VerifyOtpPage', () => {
   it('reads the email from the query string', () => {
     renderVerify('?email=alex%40prepwise.ai')
     expect(screen.getByText('alex@prepwise.ai')).toBeInTheDocument()
-  })
-
-  it('auto-fills and shows the dev OTP banner when devOtp arrives via router state', () => {
-    renderVerify('', { devOtp: '654321' })
-    expect(screen.getByText(/Dev code auto-filled/)).toBeInTheDocument()
-    expect(screen.getByText('654321')).toBeInTheDocument()
   })
 
   it('verifies the code, shows the success state, then navigates to /setup', async () => {
@@ -161,28 +155,6 @@ describe('VerifyOtpPage', () => {
     renderVerify('?email=alex%40prepwise.ai')
     fireEvent.click(screen.getByText('Change email address'))
     expect(screen.getByText('Signup Page')).toBeInTheDocument()
-  })
-
-  it('verifies immediately when clicking the dev-banner Verify now button', async () => {
-    mockVerifyOtp.mockResolvedValueOnce(undefined)
-    renderVerify('?email=alex%40prepwise.ai', { devOtp: '654321' })
-
-    fireEvent.click(screen.getByText('Verify now'))
-
-    await waitFor(() => expect(screen.getByText('Email verified')).toBeInTheDocument())
-    expect(mockVerifyOtp).toHaveBeenCalledWith('alex@prepwise.ai', '654321')
-  })
-
-  it('shows an incomplete-code error when the dev banner supplies a short code', async () => {
-    renderVerify('?email=alex%40prepwise.ai', { devOtp: '123' })
-    fireEvent.click(screen.getByText('Verify now'))
-
-    await waitFor(() =>
-      expect(
-        screen.getByText('Please enter the full 6-digit verification code.')
-      ).toBeInTheDocument()
-    )
-    expect(mockVerifyOtp).not.toHaveBeenCalled()
   })
 
   it('does nothing on resend when there is no email to resend for', () => {

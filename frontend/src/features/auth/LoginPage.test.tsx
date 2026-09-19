@@ -5,8 +5,8 @@ import { LoginPage } from './LoginPage'
 import { renderWithQueryClient } from '../../test/renderWithQueryClient'
 
 const { mockLoginWithEmail, mockLoginWithGoogle } = vi.hoisted(() => ({
-  mockLoginWithEmail: vi.fn(),
-  mockLoginWithGoogle: vi.fn(),
+  mockLoginWithEmail: vi.fn<(...args: unknown[]) => unknown>(),
+  mockLoginWithGoogle: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../../lib/authContext', () => ({

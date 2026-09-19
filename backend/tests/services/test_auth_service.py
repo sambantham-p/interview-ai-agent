@@ -635,3 +635,132 @@ async def test_reset_password_success_updates_hash_and_bumps_token_version() -> 
     assert user.password_hash != "old_hash"
     assert user.token_version == 1
     session.commit.assert_called_once()
+
+
+async def test_verify_google_token_rejects_a_payload_missing_the_email(
+    mocker: MockerFixture,
+) -> None:
+    _mock_tokeninfo_response(mocker, _valid_tokeninfo_payload(email=""))
+
+    with pytest.raises(auth_service.GoogleTokenInvalidError, match="missing subject"):
+        await auth_service.verify_google_token("a-real-id-token")
+
+
+async def test_authenticate_or_create_google_user_keeps_picture_when_none_given() -> (
+    None
+):
+    session = AsyncMock()
+    existing = User(
+        id="usr_gid-1",
+        google_id="gid-1",
+        email="a@prepwise.ai",
+        name="A",
+        picture="https://old.url",
+        is_verified=True,
+    )
+    exec_result = MagicMock()
+    exec_result.scalar_one_or_none.return_value = existing
+    session.execute.return_value = exec_result
+
+    user = await auth_service.authenticate_or_create_google_user(
+        session=session,
+        google_id="gid-1",
+        email="a@prepwise.ai",
+        name="A",
+        picture=None,
+    )
+
+    assert user.picture == "https://old.url"
+
+
+async def test_verify_otp_treats_a_naive_expiry_as_utc() -> None:
+    session = AsyncMock()
+    expired = EmailOTP(
+        email="naive@prepwise.ai",
+        name="Naive",
+        password_hash="hash",
+        otp_code="123456",
+        expires_at=(datetime.now(UTC) - timedelta(minutes=5)).replace(tzinfo=None),
+        is_used=False,
+    )
+    exec_result = MagicMock()
+    exec_result.scalar_one_or_none.return_value = expired
+    session.execute.return_value = exec_result
+
+    with pytest.raises(auth_service.OtpExpiredError):
+        await auth_service.verify_otp_and_create_user(
+            session, "naive@prepwise.ai", "123456"
+        )
+
+
+async def test_verify_reset_code_treats_a_naive_expiry_as_utc() -> None:
+    session = AsyncMock()
+    record = PasswordResetOTP(
+        email="jane@prepwise.ai",
+        otp_code="123456",
+        expires_at=(datetime.now(UTC) - timedelta(minutes=1)).replace(tzinfo=None),
+        is_used=False,
+    )
+    exec_result = MagicMock()
+    exec_result.scalar_one_or_none.return_value = record
+    session.execute.return_value = exec_result
+
+    with pytest.raises(auth_service.InvalidOrExpiredResetCodeError):
+        await auth_service.verify_reset_code(session, "jane@prepwise.ai", "123456")
+
+
+async def test_get_user_by_id_loads_the_user_from_the_session() -> None:
+    session = AsyncMock()
+    session.get.return_value = "a-user"
+
+    assert await auth_service.get_user_by_id(session, "usr_1") == "a-user"
+    session.get.assert_awaited_once_with(User, "usr_1")
+
+
+async def test_reset_password_rejects_reusing_the_current_password() -> None:
+    session = AsyncMock()
+    user = User(
+        id="usr_1",
+        email="jane@prepwise.ai",
+        name="Jane",
+        password_hash=hash_password("SamePassword#2026"),
+        is_verified=True,
+        token_version=0,
+    )
+    exec_result = MagicMock()
+    exec_result.scalar_one_or_none.return_value = user
+    session.execute.return_value = exec_result
+    reset_token = create_password_reset_token("jane@prepwise.ai")
+
+    with pytest.raises(auth_service.PasswordReuseError):
+        await auth_service.reset_password(session, reset_token, "SamePassword#2026")
+
+    assert user.token_version == 0
+    session.commit.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("given", "stored"), [("  Sam  ", "Sam"), ("   ", None), ("", None)]
+)
+async def test_update_preferred_name_trims_and_clears_blank(
+    given: str, stored: str | None
+) -> None:
+    session = AsyncMock()
+    user = User(id="usr_1", email="a@b.co", name="Full Name", is_verified=True)
+
+    updated = await auth_service.update_preferred_name(session, user, given)
+
+    assert updated.preferred_name == stored
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(user)
+
+
+async def test_delete_account_removes_dependent_rows_then_the_user() -> None:
+    session = AsyncMock()
+    user = User(id="usr_1", email="a@b.co", name="A", is_verified=True)
+
+    await auth_service.delete_account(session, user)
+
+    assert session.execute.await_count == 3
+    session.delete.assert_awaited_once_with(user)
+    session.commit.assert_awaited_once()

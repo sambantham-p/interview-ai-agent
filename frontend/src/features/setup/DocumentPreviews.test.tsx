@@ -1,11 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import {
-  JobDescriptionPreview,
-  ResumePreview,
-  jobDescriptionStats,
-  resumeStats,
-} from './DocumentPreviews'
+import { JobDescriptionPreview, ResumePreview } from './DocumentPreviews'
+import { jobDescriptionStats, resumeStats } from './documentStats'
 import type { JobDescription, Resume } from '../../types/api'
 
 const RESUME: Resume = {
@@ -108,5 +104,34 @@ describe('missing-content notices', () => {
 
     expect(screen.getByRole('note')).toHaveTextContent('Company name')
     expect(screen.getByRole('note')).toHaveTextContent('generic')
+  })
+})
+
+describe('preview details', () => {
+  it('shows partial date ranges with placeholders', () => {
+    render(
+      <ResumePreview
+        resume={{
+          ...RESUME,
+          experience: [
+            { company: 'A', role: 'Dev', start_date: null, end_date: '2020', description: null },
+            { company: 'B', role: 'Lead', start_date: '2021', end_date: null, description: null },
+            { company: 'C', role: 'Intern', start_date: null, end_date: null, description: null },
+          ],
+        }}
+      />,
+    )
+
+    expect(screen.getByText('? – 2020')).toBeInTheDocument()
+    expect(screen.getByText('2021 – Present')).toBeInTheDocument()
+  })
+
+  it('collapses a very long chip list behind a "+N more" note', () => {
+    const skills = Array.from({ length: 20 }, (_, index) => `Skill ${index}`)
+
+    render(<ResumePreview resume={{ ...RESUME, skills }} />)
+
+    expect(screen.getByText('+4 more')).toBeInTheDocument()
+    expect(screen.queryByText('Skill 19')).not.toBeInTheDocument()
   })
 })

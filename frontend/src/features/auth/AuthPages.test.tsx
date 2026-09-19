@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { AuthProvider } from '../../lib/authContext'
+import { AuthProvider } from '../../lib/AuthProvider'
 import { checkPasswordStrength } from '../../lib/passwordRules'
 import { LoginPage } from './LoginPage'
 import { SignupPage } from './SignupPage'

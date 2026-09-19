@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { api, ApiRequestError, AUTH_TOKEN_STORAGE_KEY } from './api'
+import { api, ApiRequestError, AUTH_TOKEN_STORAGE_KEY, setUnauthorizedHandler } from './api'
 
 function mockFetchOnce(body: unknown) {
   vi.stubGlobal(
     'fetch',
-    vi.fn().mockResolvedValue({
+    vi.fn<(...args: unknown[]) => unknown>().mockResolvedValue({
       json: () => Promise.resolve(body),
     })
   )
@@ -108,7 +108,7 @@ describe('api.get', () => {
   it('throws a clear ApiRequestError when the server is unreachable', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+      vi.fn<(...args: unknown[]) => unknown>().mockRejectedValue(new TypeError('Failed to fetch'))
     )
 
     await expect(api.get('/health')).rejects.toMatchObject({
@@ -121,7 +121,7 @@ describe('api.get', () => {
   it('throws a clear ApiRequestError when the parsed body is not an ApiEnvelope shape', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
+      vi.fn<(...args: unknown[]) => unknown>().mockResolvedValue({
         status: 502,
         json: () => Promise.resolve({ not: 'an envelope' }),
       })
@@ -137,7 +137,7 @@ describe('api.get', () => {
   it('throws a clear ApiRequestError when the response body is not valid JSON', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
+      vi.fn<(...args: unknown[]) => unknown>().mockResolvedValue({
         status: 502,
         json: () => Promise.reject(new SyntaxError('Unexpected end of JSON input')),
       })
@@ -177,5 +177,111 @@ describe('api.delete', () => {
     const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]
     expect(url).toContain('/resume/3')
     expect(init.method).toBe('DELETE')
+  })
+})
+
+describe('api.patch', () => {
+  it('sends a PATCH request with a JSON body', async () => {
+    mockFetchOnce({ success: true, status: 'ok', status_code: 200, data: { ok: 1 } })
+
+    await api.patch('/auth/me', { preferred_name: 'Sam' })
+
+    const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(init.method).toBe('PATCH')
+    expect(init.body).toBe(JSON.stringify({ preferred_name: 'Sam' }))
+  })
+})
+
+describe('unauthorized handling', () => {
+  afterEach(() => {
+    setUnauthorizedHandler(null)
+    vi.unstubAllGlobals()
+  })
+
+  function mock401(body: unknown) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<() => Promise<unknown>>().mockResolvedValue({ status: 401, json: () => Promise.resolve(body) }),
+    )
+  }
+  const unauthorizedBody = {
+    success: false,
+    status: 'error',
+    status_code: 401,
+    data: null,
+    error: { message: 'Expired' },
+  }
+
+  it('calls the handler for a 401 on a non-auth endpoint', async () => {
+    const handler = vi.fn<() => void>()
+    setUnauthorizedHandler(handler)
+    mock401(unauthorizedBody)
+
+    await expect(api.get('/interview')).rejects.toBeInstanceOf(ApiRequestError)
+
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  it('does not call the handler for a 401 on an auth endpoint (a wrong password)', async () => {
+    const handler = vi.fn<() => void>()
+    setUnauthorizedHandler(handler)
+    mock401(unauthorizedBody)
+
+    await expect(api.post('/auth/login', {})).rejects.toBeInstanceOf(ApiRequestError)
+
+    expect(handler).not.toHaveBeenCalled()
+  })
+})
+
+describe('api.postForBlob', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('returns the blob for a successful response', async () => {
+    const blob = new Blob(['%PDF'])
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<() => Promise<unknown>>().mockResolvedValue({ ok: true, status: 200, blob: () => Promise.resolve(blob) }),
+    )
+
+    expect(await api.postForBlob('/interview/1/report/pdf', {})).toBe(blob)
+  })
+
+  it('throws the envelope message for an error response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<() => Promise<unknown>>().mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: () =>
+          Promise.resolve({
+            success: false,
+            status: 'error',
+            status_code: 404,
+            data: null,
+            error: { message: 'No report yet' },
+          }),
+      }),
+    )
+
+    await expect(api.postForBlob('/x', {})).rejects.toMatchObject({
+      message: 'No report yet',
+      statusCode: 404,
+    })
+  })
+
+  it('throws the generic message when a non-ok response carries a success envelope', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<() => Promise<unknown>>().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () =>
+          Promise.resolve({ success: true, status: 'ok', status_code: 200, data: {} }),
+      }),
+    )
+
+    await expect(api.postForBlob('/x', {})).rejects.toThrow('unexpected response')
   })
 })

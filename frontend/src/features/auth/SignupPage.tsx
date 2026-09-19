@@ -35,10 +35,8 @@ export function SignupPage() {
       registerWithEmail(name, email, password).catch((err: unknown) => {
         throw new Error(toErrorMessage(err, 'Registration failed. Please try again.'))
       }),
-    onSuccess: (result, variables) => {
-      navigate(`/verify-email?email=${encodeURIComponent(variables.email)}`, {
-        state: { devOtp: result.dev_otp ?? null },
-      })
+    onSuccess: (_result, variables) => {
+      navigate(`/verify-email?email=${encodeURIComponent(variables.email)}`)
     },
   })
 

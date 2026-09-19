@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { useLocation, useNavigate, useSearchParams } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { AuthLayout } from './AuthLayout'
 import { OtpVerificationForm } from '../../components/ui/OtpVerificationForm'
 import { CheckCircleIcon } from '../../components/ui/icons'
@@ -10,23 +10,15 @@ import { PASSWORD_RESET_EXPIRY_MINUTES } from '../../lib/authConstants'
 import { toErrorMessage } from '../../lib/errorMessage'
 import { useToast } from '../../lib/toastContext'
 
-function readDevOtp(state: unknown): string {
-  if (typeof state !== 'object' || state === null || !('devOtp' in state)) return ''
-  const devOtp = (state as { devOtp?: unknown }).devOtp
-  return typeof devOtp === 'string' ? devOtp : ''
-}
-
 export function ResetCodePage() {
   const navigate = useNavigate()
-  const location = useLocation()
   const [searchParams] = useSearchParams()
   const { verifyResetCode, forgotPassword } = useAuth()
   const { showToast } = useToast()
 
   const email = searchParams.get('email') || ''
-  const devOtp = readDevOtp(location.state)
 
-  const [otp, setOtp] = useState(devOtp || '')
+  const [otp, setOtp] = useState('')
   const [validationError, setValidationError] = useState<string | null>(null)
   const [isResending, setIsResending] = useState(false)
 
@@ -108,9 +100,6 @@ export function ResetCodePage() {
             </div>
           </div>
         }
-        devOtp={devOtp}
-        devOtpButtonLabel="Continue now"
-        onDevOtpClick={() => handleContinue(devOtp)}
         error={error}
         otp={otp}
         onOtpChange={(val) => {

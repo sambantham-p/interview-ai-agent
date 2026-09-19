@@ -7,22 +7,42 @@ Vitest, oxlint/Prettier) was scaffolded ahead of schedule and verified via
 the `health-check/` page. **Auth (login, signup, email OTP verification,
 forgot/reset password) is now real, built, and tested** — see
 [Authentication](#authentication) below. **Frontend Finalization is
-underway as 5 reviewable checkpoints (see root `CLAUDE.md`'s Stage 5
-entry) — Checkpoints 1-4 built (Checkpoint 2: the `/setup` onboarding
-wizard; Checkpoint 3: the live interview screen with voice; Checkpoint 4:
-the report page + PDF; 3 and 4 have their unit tests deferred and are not
-browser-verified yet):** `dashboard/` and `documents/` are now real
-pages (behind a new `AppShell` sidebar shell), and the authenticated
-landing route is `/dashboard`, not `/setup`. Checkpoint 1 also locked a
+complete: all 5 reviewable checkpoints (see root `CLAUDE.md`'s Stage 5
+entry) are built, unit-tested and merged to `dev`** — Checkpoint 1: app
+shell, dashboard, documents; 2: the `/setup` onboarding wizard; 3: the
+live interview screen with voice; 4: the report page + PDF and the
+reports collection; 5: nav polish and settings. What is still outstanding
+is live browser verification of Checkpoints 2-5 and the Playwright E2E
+layer. The authenticated landing route is `/dashboard`. Checkpoint 1
+also locked a
 small set of reusable visual-polish primitives (icon set, `Card`'s
 hover-lift, `StatTile`, tinted icon chips, icon-paired section headers)
 — see root `CLAUDE.md`'s Frontend Conventions for the full list; reuse
-these in every later checkpoint rather than inventing a new look per
-screen. Only the settings
-page (Checkpoint 5) is still to come. This
+these rather than inventing a new look per screen.
+This
 document is both a developer guide for what's real today and a spec to
 build against for what isn't — when a placeholder becomes real, update
 this file in the same commit, don't silently diverge from it.
+
+## Screens
+
+14 routes, all defined in `src/App.tsx`. Anything else renders
+`NotFoundPage`.
+
+| Route | Screen | Access |
+|---|---|---|
+| `/` | Landing page | public |
+| `/login`, `/signup`, `/verify-email`, `/forgot-password` | Auth pages | guests only (`GuestOnlyRoute`) |
+| `/reset-password/verify`, `/reset-password/new` | Reset code + new password | anyone |
+| `/dashboard` | Recent interviews + start CTA | signed in (`RequireAuthRoute`) |
+| `/documents` | Resumes + job descriptions, delete | signed in |
+| `/reports` | A card per finished interview | signed in |
+| `/setup` | 5-step wizard: resume, role (JD), format (preset + duration), mic check, lobby | signed in |
+| `/interview/:sessionId` | Live interview, text + voice (full-bleed dark track) | signed in |
+| `/interview/:sessionId/report` | Report: Overview / Performance insights / Phase review / Action plan, PDF download | signed in |
+| `/settings` | Profile name, password reset email, delete account | signed in |
+
+`features/health-check/` is the early `/health` demo and has no route.
 
 ## Tech stack
 
@@ -104,7 +124,8 @@ frontend/                            # ✓ = real, built and verified; everythin
 │   │   │   ├── ResumeStep / JobDescriptionStep / PresetStep / MicCheckStep / LobbyStep
 │   │   │   ├── LobbyStep / LobbyStarting.tsx # lobby: start request runs during a countdown ring, then a "preparing" checklist
 │   │   │   ├── DocumentPreviewCard.tsx#   preview shell (header, stats row, delete + Change)
-│   │   │   └── DocumentPreviews.tsx   #   resume/JD preview content
+│   │   │   ├── DocumentPreviews.tsx   #   resume/JD preview content
+│   │   │   └── documentStats.tsx      #   resume/JD stat tiles (kept apart: component files export only components)
 │   │   ├── interview-chat/        # ✓ REAL (Checkpoint 3) — /interview/:sessionId, the dark "simulation" track
 │   │   │   ├── InterviewChatPage.tsx  #   loads the session, sends turns, holds each reply until its voice is ready
 │   │   │   ├── InterviewHeader.tsx    #   phase progress, server-clocked phase timer, mute toggle
@@ -152,7 +173,10 @@ frontend/                            # ✓ = real, built and verified; everythin
 │   │       ├── PrepwiseLogo.tsx / ShieldCheckIcon.tsx
 │   ├── lib/
 │   │   ├── api.ts                 # ✓ fetch wrapper: unwraps {success, data, error}, throws on error
-│   │   ├── authContext.tsx        # ✓ AuthProvider/useAuth — session state, all /auth/* calls
+│   │   ├── authContext.tsx        # ✓ AuthContext + useAuth hook
+│   │   ├── AuthProvider.tsx       # ✓ AuthProvider — session state, all /auth/* calls
+│   │   ├── toastContext.tsx       # ToastContext + useToast hook
+│   │   ├── ToastProvider.tsx      # ToastProvider — toast state and rendering
 │   │   ├── queries.ts             # ✓ REAL (Checkpoint 1) — shared TanStack Query hooks
 │   │   │                          #   (useResumes/useJobDescriptions/useInterviews/useInterviewPresets/
 │   │   │                          #   useDeleteDocument) used by more
@@ -235,7 +259,7 @@ export function useReport(sessionId: string) {
 
 ## Authentication
 
-`lib/authContext.tsx`'s `AuthProvider`/`useAuth()` wraps the whole app
+`lib/AuthProvider.tsx`'s `AuthProvider` (and `lib/authContext.tsx`'s `useAuth()`) wraps the whole app
 (mounted in `App.tsx`) and is the only thing that talks to the backend's
 `/auth/*` endpoints — no page calls `api.post('/auth/...')` directly.
 Session (`user` + JWT `token`) persists to `localStorage`
@@ -333,13 +357,23 @@ UX has no room for a white screen mid-interview):
 Same discipline as the backend's `pytest` — tests written alongside each
 component, not batched at the end (see root `CLAUDE.md`'s Testing
 Discipline section, which applies project-wide, not just to `backend/`).
-`health-check/HealthStatus.test.tsx` was the first real example of this;
-`features/auth/AuthPages.test.tsx` is the second — one file covering all
-six auth pages plus `PasswordStrengthMeter`/`OtpDigitBoxes`/
-`checkPasswordStrength`, since they share enough setup (`AuthProvider` +
-`MemoryRouter`) that colocated-but-separate files would mostly duplicate
-that scaffolding. Every remaining placeholder page picks up its own
-colocated test once it gets real logic.
+Every page, hook, and shared component has a colocated test — 529 tests
+today. `features/auth/AuthPages.test.tsx` covers the six auth pages in one
+file since they share `AuthProvider` + `MemoryRouter` setup;
+`src/test/fixtures.ts` builds interview/report objects for the
+interview-chat, report and reports tests, and `src/test/
+renderWithQueryClient.tsx` wraps a component in a `QueryClient` + toast
+provider.
+
+**Coverage is gated at 98%.** `vite.config.ts` sets
+`test.coverage.thresholds` to 98 for statements, branches, functions and
+lines, so `npm run test:coverage` fails below that. Current numbers:
+99.09% statements / 98.69% branches / 99.79% functions / 99.18% lines. The
+coverage `include` is every file under `src/` (excluding tests,
+`src/test/`, `main.tsx` and `src/types/`), so a screen without tests
+counts as 0% instead of dropping out of the report — the default only
+measures files a test happens to import, which had been hiding a real
+63% baseline.
 
 ```bash
 npm run test          # vitest run

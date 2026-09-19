@@ -13,7 +13,7 @@ vi.mock('../../lib/api', () => ({
 vi.mock('../../lib/authContext', () => ({
   useAuth: () => ({
     user: { name: 'Sarah Chen', email: 'sarah@example.com', picture: null },
-    logout: vi.fn(),
+    logout: vi.fn<(...args: unknown[]) => unknown>(),
   }),
 }))
 

@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router'
 import { RequireAuthRoute } from './RequireAuthRoute'
 
 const { mockUseAuth } = vi.hoisted(() => ({
-  mockUseAuth: vi.fn(),
+  mockUseAuth: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../lib/authContext', () => ({

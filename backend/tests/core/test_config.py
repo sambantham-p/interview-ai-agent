@@ -8,7 +8,9 @@ from app.core.config import (
     GeminiSettings,
     get_database_settings,
     get_elevenlabs_settings,
+    get_gateway_settings,
     get_gemini_settings,
+    get_smtp_settings,
 )
 
 
@@ -83,3 +85,11 @@ def test_gateway_settings_raises_key_error_for_unknown_task() -> None:
 
     with pytest.raises(KeyError):
         settings.model_for_task("unknown_task")
+
+
+def test_get_gateway_settings_is_cached() -> None:
+    assert get_gateway_settings() is get_gateway_settings()
+
+
+def test_get_smtp_settings_is_cached() -> None:
+    assert get_smtp_settings() is get_smtp_settings()

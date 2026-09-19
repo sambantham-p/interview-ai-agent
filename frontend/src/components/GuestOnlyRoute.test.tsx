@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router'
 import { GuestOnlyRoute } from './GuestOnlyRoute'
 
 const { mockUseAuth } = vi.hoisted(() => ({
-  mockUseAuth: vi.fn(),
+  mockUseAuth: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../lib/authContext', () => ({

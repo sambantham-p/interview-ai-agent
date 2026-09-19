@@ -38,7 +38,7 @@ describe('Input', () => {
   })
 
   it('forwards onChange and other input props', () => {
-    const handleChange = vi.fn()
+    const handleChange = vi.fn<(...args: unknown[]) => unknown>()
     render(<Input label="Name" onChange={handleChange} placeholder="Your name" />)
     fireEvent.change(screen.getByPlaceholderText('Your name'), {
       target: { value: 'Alex' },

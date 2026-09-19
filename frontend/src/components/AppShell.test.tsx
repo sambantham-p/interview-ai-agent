@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { AppShell } from './AppShell'
 
 vi.mock('../lib/authContext', () => ({
-  useAuth: () => ({ user: null, logout: vi.fn() }),
+  useAuth: () => ({ user: null, logout: vi.fn<(...args: unknown[]) => unknown>() }),
 }))
 
 describe('AppShell', () => {

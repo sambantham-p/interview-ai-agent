@@ -1,6 +1,6 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ToastProvider } from '../../lib/toastContext'
+import { ToastProvider } from '../../lib/ToastProvider'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { DocumentsPage } from './DocumentsPage'
@@ -14,7 +14,7 @@ vi.mock('../../lib/api', () => ({
 }))
 
 vi.mock('../../lib/authContext', () => ({
-  useAuth: () => ({ user: null, logout: vi.fn() }),
+  useAuth: () => ({ user: null, logout: vi.fn<(...args: unknown[]) => unknown>() }),
 }))
 
 function renderDocuments() {

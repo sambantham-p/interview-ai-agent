@@ -668,3 +668,290 @@ async def test_run_tool_loop_raises_parse_error_when_candidate_has_no_content(
             thinking_level="medium",
             max_rounds=4,
         )
+
+
+async def test_run_tool_loop_calls_on_round_after_each_generate_call(
+    mocker: MockerFixture,
+) -> None:
+    candidate = MagicMock()
+    candidate.content = types.Content(
+        role="model", parts=[types.Part.from_text(text="done")]
+    )
+    response = MagicMock()
+    response.candidates = [candidate]
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(return_value=response)
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+    on_round = mocker.AsyncMock()
+
+    await run_tool_loop(
+        model="gemini-3.8-flash",
+        contents=[types.Content(role="user", parts=[types.Part.from_text(text="hi")])],
+        system_instruction="You have tools.",
+        tools=[],
+        tool_dispatch={},
+        thinking_level="medium",
+        max_rounds=4,
+        on_round=on_round,
+    )
+
+    assert on_round.await_count == 1
+    assert on_round.await_args.args[0] == 0
+    assert on_round.await_args.args[1] is response
+
+
+class _StatusError(Exception):
+    def __init__(self, status_code: object) -> None:
+        super().__init__("status error")
+        self.status_code = status_code
+
+
+class APIConnectionError(Exception):
+    pass
+
+
+class APITimeoutError(APIConnectionError):
+    pass
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (_StatusError(429), True),
+        (_StatusError(503), True),
+        (_StatusError(400), False),
+        (_StatusError("oops"), False),
+        (httpx.ConnectError("down"), True),
+        (APIConnectionError("no response"), True),
+        (APITimeoutError("timed out"), True),
+        (ValueError("plain"), False),
+    ],
+)
+def test_is_transient_interactions_error_classification(
+    exc: Exception, expected: bool
+) -> None:
+    from app.core.gemini_client import _is_transient_interactions_error
+
+    assert _is_transient_interactions_error(exc) is expected
+
+
+def test_thinking_config_for_maps_each_level() -> None:
+    from app.core.gemini_client import thinking_config_for
+
+    assert thinking_config_for("high").thinking_level == types.ThinkingLevel.HIGH
+    assert thinking_config_for("minimal").thinking_level == types.ThinkingLevel.MINIMAL
+
+
+def _text_response(text: str = "hello") -> MagicMock:
+    response = MagicMock()
+    response.usage_metadata = "usage"
+    response.candidates = [MagicMock()]
+    return response
+
+
+async def test_generate_plain_reports_usage_on_success(mocker: MockerFixture) -> None:
+    from app.core.gemini_client import _generate_plain
+
+    response = _text_response()
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(return_value=response)
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+    on_usage = mocker.MagicMock()
+
+    result = await _generate_plain(
+        model="m",
+        contents="hi",
+        config=types.GenerateContentConfig(),
+        log_event="test.plain",
+        on_usage=on_usage,
+    )
+
+    assert result is response
+    on_usage.assert_called_once_with("usage")
+
+
+async def test_generate_plain_wraps_transient_errors_and_reports_none_usage(
+    mocker: MockerFixture,
+) -> None:
+    from app.core.gemini_client import _generate_plain
+
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(
+        side_effect=ServerError(500, {"error": {"message": "boom"}})
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+    on_usage = mocker.MagicMock()
+
+    with pytest.raises(GeminiTransientError):
+        await _generate_plain(
+            model="m",
+            contents="hi",
+            config=types.GenerateContentConfig(),
+            log_event="test.plain",
+            on_usage=on_usage,
+        )
+
+    on_usage.assert_called_once_with(None)
+
+
+async def test_generate_plain_reraises_non_transient_errors(
+    mocker: MockerFixture,
+) -> None:
+    from app.core.gemini_client import _generate_plain
+
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(
+        side_effect=ValueError("bad")
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    with pytest.raises(ValueError, match="bad"):
+        await _generate_plain(
+            model="m",
+            contents="hi",
+            config=types.GenerateContentConfig(),
+            log_event="test.plain",
+            on_usage=None,
+        )
+
+
+def _interaction(text: str | None = " hello there ", usage: object | None = None):
+    interaction = MagicMock()
+    interaction.output_text = text
+    interaction.usage = usage
+    return interaction
+
+
+async def test_transcribe_audio_returns_stripped_text_and_sends_vocabulary(
+    mocker: MockerFixture,
+) -> None:
+    from app.core.gemini_client import transcribe_audio
+
+    usage = MagicMock(total_input_tokens=10, total_output_tokens=5, total_tokens=15)
+    fake_client = mocker.MagicMock()
+    fake_client.aio.interactions.create = mocker.AsyncMock(
+        return_value=_interaction(usage=usage)
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+    on_usage = mocker.MagicMock()
+
+    text = await transcribe_audio(
+        model="stt",
+        audio_bytes=b"abc",
+        mime_type="audio/webm",
+        vocabulary=["FastAPI"],
+        on_usage=on_usage,
+    )
+
+    assert text == "hello there"
+    kwargs = fake_client.aio.interactions.create.call_args.kwargs
+    assert kwargs["input"][0]["mime_type"] == "audio/webm"
+    assert kwargs["generation_config"] == {
+        "transcription_config": {"custom_vocabulary": ["FastAPI"]}
+    }
+    reported = on_usage.call_args.args[0]
+    assert reported.prompt_token_count == 10
+    assert reported.total_token_count == 15
+
+
+async def test_transcribe_audio_returns_empty_string_when_no_speech(
+    mocker: MockerFixture,
+) -> None:
+    from app.core.gemini_client import transcribe_audio
+
+    fake_client = mocker.MagicMock()
+    fake_client.aio.interactions.create = mocker.AsyncMock(
+        return_value=_interaction(text=None)
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    text = await transcribe_audio(model="stt", audio_bytes=b"a", mime_type="audio/webm")
+
+    assert text == ""
+    assert (
+        fake_client.aio.interactions.create.call_args.kwargs["generation_config"]
+        is None
+    )
+
+
+async def test_transcribe_audio_wraps_transient_errors(mocker: MockerFixture) -> None:
+    from app.core.gemini_client import transcribe_audio
+
+    fake_client = mocker.MagicMock()
+    fake_client.aio.interactions.create = mocker.AsyncMock(
+        side_effect=_StatusError(503)
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+    on_usage = mocker.MagicMock()
+
+    with pytest.raises(GeminiTransientError):
+        await transcribe_audio(
+            model="stt", audio_bytes=b"a", mime_type="audio/webm", on_usage=on_usage
+        )
+
+    on_usage.assert_called_once_with(None)
+
+
+async def test_transcribe_audio_reraises_non_transient_errors(
+    mocker: MockerFixture,
+) -> None:
+    from app.core.gemini_client import transcribe_audio
+
+    fake_client = mocker.MagicMock()
+    fake_client.aio.interactions.create = mocker.AsyncMock(
+        side_effect=_StatusError(400)
+    )
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    with pytest.raises(_StatusError):
+        await transcribe_audio(model="stt", audio_bytes=b"a", mime_type="audio/webm")
+
+
+async def test_generate_speech_returns_pcm_bytes(mocker: MockerFixture) -> None:
+    from app.core.gemini_client import generate_speech
+
+    part = MagicMock()
+    part.inline_data.data = b"pcm-bytes"
+    response = MagicMock()
+    response.usage_metadata = None
+    response.candidates = [MagicMock(content=MagicMock(parts=[part]))]
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(return_value=response)
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    audio = await generate_speech(model="tts", text="Hello", voice_name="Kore")
+
+    assert audio == b"pcm-bytes"
+
+
+async def test_generate_speech_raises_when_no_audio_in_response(
+    mocker: MockerFixture,
+) -> None:
+    from app.core.gemini_client import generate_speech
+
+    response = MagicMock()
+    response.usage_metadata = None
+    response.candidates = []
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(return_value=response)
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    with pytest.raises(GeminiResponseParseError):
+        await generate_speech(model="tts", text="Hello", voice_name="Kore")
+
+
+async def test_generate_speech_skips_parts_without_audio(mocker: MockerFixture) -> None:
+    from app.core.gemini_client import generate_speech
+
+    text_part = MagicMock()
+    text_part.inline_data = None
+    audio_part = MagicMock()
+    audio_part.inline_data.data = b"pcm"
+    response = MagicMock()
+    response.usage_metadata = None
+    response.candidates = [MagicMock(content=MagicMock(parts=[text_part, audio_part]))]
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content = mocker.AsyncMock(return_value=response)
+    mocker.patch("app.core.gemini_client.get_gemini_client", return_value=fake_client)
+
+    assert await generate_speech(model="tts", text="Hi", voice_name="Kore") == b"pcm"

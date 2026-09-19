@@ -9,6 +9,7 @@ from app.constants.interview import (
 from app.services.interview_presets import (
     InvalidInterviewPresetError,
     build_session_plan,
+    max_answer_seconds,
     phase_time_status,
     resolve_phases,
     split_time_budget,
@@ -157,3 +158,23 @@ def test_phase_time_status_thresholds(
     )
 
     assert (status, force_complete) == (expected, force)
+
+
+@pytest.mark.parametrize(
+    ("duration", "expected"),
+    [(None, 300), (5, 180), (20, 300), (40, 480), (120, 480)],
+)
+def test_max_answer_seconds_scales_with_duration_within_bounds(
+    duration: int | None, expected: int
+) -> None:
+    assert max_answer_seconds(duration) == expected
+
+
+def test_split_time_budget_raises_if_budgets_do_not_sum_to_the_duration(
+    mocker,
+) -> None:
+    # With no leftover minute handed out, the whole-minute floors fall short.
+    mocker.patch("app.services.interview_presets.sorted", return_value=[], create=True)
+
+    with pytest.raises(RuntimeError, match="don't add up"):
+        split_time_budget(["technical_interview", "career_motivation"], 7)

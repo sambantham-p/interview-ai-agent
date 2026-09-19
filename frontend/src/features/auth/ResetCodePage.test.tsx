@@ -5,8 +5,8 @@ import { ResetCodePage } from './ResetCodePage'
 import { renderWithQueryClient } from '../../test/renderWithQueryClient'
 
 const { mockVerifyResetCode, mockForgotPassword } = vi.hoisted(() => ({
-  mockVerifyResetCode: vi.fn(),
-  mockForgotPassword: vi.fn(),
+  mockVerifyResetCode: vi.fn<(...args: unknown[]) => unknown>(),
+  mockForgotPassword: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../../lib/authContext', () => ({
@@ -53,12 +53,6 @@ describe('ResetCodePage', () => {
 
   afterEach(() => {
     vi.useRealTimers()
-  })
-
-  it('shows the auto-filled dev OTP banner when devOtp arrives via router state', () => {
-    renderReset('', { devOtp: '112233' })
-    expect(screen.getByText(/Dev code auto-filled/)).toBeInTheDocument()
-    expect(screen.getByText('112233')).toBeInTheDocument()
   })
 
   it('verifies the code, shows the success state, then navigates with the reset token in the URL', async () => {
@@ -133,30 +127,10 @@ describe('ResetCodePage', () => {
     await waitFor(() => expect(screen.getByText('Failed to resend code.')).toBeInTheDocument())
   })
 
-  it('verifies immediately when clicking the dev-banner Continue now button', async () => {
-    mockVerifyResetCode.mockResolvedValueOnce('a-reset-token')
-    renderReset('?email=alex%40prepwise.ai', { devOtp: '112233' })
-
-    fireEvent.click(screen.getByText('Continue now'))
-
-    await waitFor(() => expect(screen.getByText('Code verified')).toBeInTheDocument())
-    expect(mockVerifyResetCode).toHaveBeenCalledWith('alex@prepwise.ai', '112233')
-  })
-
   it('keeps Continue disabled for an incomplete code', () => {
     renderReset('?email=alex%40prepwise.ai')
     enterOtp('12')
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
-  })
-
-  it('shows an incomplete-code error when the dev banner supplies a short code', async () => {
-    renderReset('?email=alex%40prepwise.ai', { devOtp: '123' })
-    fireEvent.click(screen.getByText('Continue now'))
-
-    await waitFor(() =>
-      expect(screen.getByText('Please enter the full 6-digit code.')).toBeInTheDocument()
-    )
-    expect(mockVerifyResetCode).not.toHaveBeenCalled()
   })
 
   it('does nothing on resend when there is no email to resend for', () => {

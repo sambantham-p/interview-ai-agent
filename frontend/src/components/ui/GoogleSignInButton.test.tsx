@@ -42,19 +42,19 @@ function renderAndReachFallback(props: Parameters<typeof GoogleSignInButton>[0])
 
 describe('GoogleSignInButton', () => {
   it('renders the fallback button when Google Identity Services is unavailable', () => {
-    renderAndReachFallback({ onSuccess: vi.fn() })
+    renderAndReachFallback({ onSuccess: vi.fn<(...args: unknown[]) => unknown>() })
     expect(screen.getByText('Continue with Google')).toBeInTheDocument()
   })
 
   it('is disabled while isLoading is true, in the fallback state', () => {
-    renderAndReachFallback({ onSuccess: vi.fn(), isLoading: true })
+    renderAndReachFallback({ onSuccess: vi.fn<(...args: unknown[]) => unknown>(), isLoading: true })
     expect(screen.getByRole('button')).toBeDisabled()
   })
 
   it('initializes Google Identity Services and renders its real button instead of the fallback', () => {
     const { initialize, renderButton } = mockGoogleId()
 
-    render(<GoogleSignInButton onSuccess={vi.fn()} />)
+    render(<GoogleSignInButton onSuccess={vi.fn<(...args: unknown[]) => unknown>()} />)
 
     expect(initialize).toHaveBeenCalled()
     // jsdom always reports offsetWidth 0, so the 360 fallback width is used.
@@ -72,12 +72,12 @@ describe('GoogleSignInButton', () => {
     // script (loaded async/defer) isn't ready on the very first effect
     // run, but becomes ready moments later.
     vi.useFakeTimers()
-    const renderButton = vi.fn()
-    const initialize = vi.fn(
-      (config: { callback: (res: { credential: string }) => void }) => config
-    )
+    const renderButton = vi.fn<(...args: unknown[]) => unknown>()
+    const initialize = vi.fn<
+      (config: { callback: (res: { credential: string }) => void }) => unknown
+    >((config) => config)
 
-    render(<GoogleSignInButton onSuccess={vi.fn()} />)
+    render(<GoogleSignInButton onSuccess={vi.fn<(...args: unknown[]) => unknown>()} />)
     expect(renderButton).not.toHaveBeenCalled()
 
     window.google = { accounts: { id: { initialize, renderButton } } }
@@ -91,7 +91,7 @@ describe('GoogleSignInButton', () => {
   })
 
   it('forwards a returned credential to onSuccess via the initialize callback', () => {
-    const onSuccess = vi.fn()
+    const onSuccess = vi.fn<(...args: unknown[]) => unknown>()
     let capturedCallback: ((res: { credential: string }) => void) | undefined
     mockGoogleId({
       initialize: (config: { callback: (res: { credential: string }) => void }) => {
@@ -106,7 +106,7 @@ describe('GoogleSignInButton', () => {
   })
 
   it('calls onError when the initialize callback returns no credential', () => {
-    const onError = vi.fn()
+    const onError = vi.fn<(...args: unknown[]) => unknown>()
     let capturedCallback: ((res: { credential: string }) => void) | undefined
     mockGoogleId({
       initialize: (config: { callback: (res: { credential: string }) => void }) => {
@@ -114,7 +114,7 @@ describe('GoogleSignInButton', () => {
       },
     })
 
-    render(<GoogleSignInButton onSuccess={vi.fn()} onError={onError} />)
+    render(<GoogleSignInButton onSuccess={vi.fn<(...args: unknown[]) => unknown>()} onError={onError} />)
 
     capturedCallback?.({ credential: '' })
     expect(onError).toHaveBeenCalledWith('No credential returned from Google.')
@@ -134,7 +134,7 @@ describe('GoogleSignInButton', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     try {
-      render(<GoogleSignInButton onSuccess={vi.fn()} />)
+      render(<GoogleSignInButton onSuccess={vi.fn<(...args: unknown[]) => unknown>()} />)
       expect(initialize).not.toHaveBeenCalled()
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         'VITE_GOOGLE_CLIENT_ID is not set - Google Sign-In cannot be initialized.'
@@ -145,8 +145,8 @@ describe('GoogleSignInButton', () => {
   })
 
   it('calls onError, not onSuccess, when the fallback button is clicked', () => {
-    const onError = vi.fn()
-    const onSuccess = vi.fn()
+    const onError = vi.fn<(...args: unknown[]) => unknown>()
+    const onSuccess = vi.fn<(...args: unknown[]) => unknown>()
 
     renderAndReachFallback({ onSuccess, onError })
     fireEvent.click(screen.getByRole('button'))

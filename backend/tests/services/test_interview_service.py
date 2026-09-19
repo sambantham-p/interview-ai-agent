@@ -1298,3 +1298,24 @@ async def test_start_interview_prefetches_pool_and_research_concurrently(
 
     assert events[:2] == ["pool:start", "search:start"]
     assert session.company_research == "notes"
+
+
+async def test_get_interview_with_job_returns_session_and_its_job_description(
+    mocker: MockerFixture,
+) -> None:
+    from app.services.interview_service import get_interview_with_job
+
+    session = InterviewSession(id=3, job_description_id=8)
+    job = JobDescription(id=8, role="Backend Engineer")
+    mocker.patch(
+        "app.services.interview_service.get_interview_session_or_404",
+        new_callable=mocker.AsyncMock,
+        return_value=session,
+    )
+    db = mocker.AsyncMock()
+    db.get.return_value = job
+
+    result = await get_interview_with_job(session_id=3, user_id=TEST_USER_ID, db=db)
+
+    assert result == (session, job)
+    db.get.assert_awaited_once_with(JobDescription, 8)

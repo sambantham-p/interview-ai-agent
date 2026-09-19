@@ -4,8 +4,8 @@ import { describe, it, expect, vi } from 'vitest'
 import { Navigation } from './Navigation'
 
 const { mockUseAuth, mockLogout } = vi.hoisted(() => ({
-  mockUseAuth: vi.fn(),
-  mockLogout: vi.fn(),
+  mockUseAuth: vi.fn<(...args: unknown[]) => unknown>(),
+  mockLogout: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../lib/authContext', () => ({
@@ -130,5 +130,19 @@ describe('Navigation — opaque (default) variant', () => {
 
     const signInEl = screen.getByText('Sign in')
     expect(signInEl.className).toContain('text-navy')
+  })
+})
+
+describe('Navigation — signed-in transparent variant', () => {
+  it('uses light text for the account details on a dark hero', () => {
+    mockUseAuth.mockReturnValue({
+      user: { name: 'Sarah Chen', email: 'sarah@example.com', picture: null },
+      isAuthenticated: true,
+      logout: mockLogout,
+    })
+    renderNavigation({ transparent: true })
+
+    expect(screen.getByText('Sarah Chen')).toHaveClass('text-white')
+    expect(screen.getByText('sarah@example.com')).toHaveClass('text-slate-300')
   })
 })

@@ -9,7 +9,8 @@ import { toErrorMessage } from '../../lib/errorMessage'
 import { useJobDescriptions } from '../../lib/queries'
 import type { JobDescription } from '../../types/api'
 import { DocumentPreviewCard } from './DocumentPreviewCard'
-import { JobDescriptionPreview, jobDescriptionStats } from './DocumentPreviews'
+import { JobDescriptionPreview } from './DocumentPreviews'
+import { jobDescriptionStats } from './documentStats'
 
 type JdMode = 'full_text' | 'short_description'
 

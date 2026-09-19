@@ -1,7 +1,7 @@
 import { render, type RenderResult } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { ToastProvider } from '../lib/toastContext'
+import { ToastProvider } from '../lib/ToastProvider'
 
 
 export function renderWithQueryClient(ui: ReactNode): RenderResult {

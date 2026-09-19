@@ -10,7 +10,8 @@ import { toErrorMessage } from '../../lib/errorMessage'
 import { useResumes } from '../../lib/queries'
 import type { Resume } from '../../types/api'
 import { DocumentPreviewCard } from './DocumentPreviewCard'
-import { ResumePreview, resumeStats } from './DocumentPreviews'
+import { ResumePreview } from './DocumentPreviews'
+import { resumeStats } from './documentStats'
 
 export const MAX_RESUME_SIZE_BYTES = 10 * 1024 * 1024
 

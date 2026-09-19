@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ToastProvider } from '../../lib/toastContext'
+import { ToastProvider } from '../../lib/ToastProvider'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SetupWizardPage } from './SetupWizardPage'
@@ -338,7 +338,7 @@ describe('mic check step', () => {
 
   it('explains a denied microphone without blocking progress', async () => {
     vi.stubGlobal('navigator', {
-      mediaDevices: { getUserMedia: vi.fn().mockRejectedValue(new Error('denied')) },
+      mediaDevices: { getUserMedia: vi.fn<(...args: unknown[]) => unknown>().mockRejectedValue(new Error('denied')) },
     })
     await goToMicCheck()
 
@@ -361,7 +361,7 @@ describe('mic check step', () => {
     const stop = vi.fn<() => void>()
     vi.stubGlobal('navigator', {
       mediaDevices: {
-        getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] }),
+        getUserMedia: vi.fn<(...args: unknown[]) => unknown>().mockResolvedValue({ getTracks: () => [{ stop }] }),
       },
     })
     class FakeAudioContext {
@@ -681,5 +681,177 @@ describe('job description preview and delete', () => {
 
     await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/jd/7'))
     expect(await screen.findByLabelText('Paste the job description')).toBeInTheDocument()
+  })
+})
+
+describe('resume step details', () => {
+  it('titles a resume without experience by its school, or a generic name', async () => {
+    mockGets({
+      '/resume': [
+        { ...RESUME, id: 1, experience: [], education: [{ institution: 'MIT', degree: 'BS', field_of_study: null, start_date: null, end_date: null }] },
+        { ...RESUME, id: 2, experience: [], education: [] },
+      ],
+    })
+    renderWizard()
+
+    expect(await screen.findByRole('button', { name: /MIT/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Resume/ })).toBeInTheDocument()
+  })
+
+  it('rejects a PDF over the size limit without calling the backend', async () => {
+    renderWizard()
+    const big = new File(['x'], 'big.pdf', { type: 'application/pdf' })
+    Object.defineProperty(big, 'size', { value: 11 * 1024 * 1024 })
+
+    fireEvent.change(await screen.findByLabelText('Resume PDF'), { target: { files: [big] } })
+
+    expect(await screen.findByText('That file is over the 10 MB limit.')).toBeInTheDocument()
+    expect(api.upload).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when the file picker is dismissed without a file', async () => {
+    renderWizard()
+
+    fireEvent.change(await screen.findByLabelText('Resume PDF'), { target: { files: [] } })
+
+    expect(api.upload).not.toHaveBeenCalled()
+  })
+
+  it('opens the file picker from the Choose PDF button', async () => {
+    renderWizard()
+    const input = await screen.findByLabelText('Resume PDF')
+    const click = vi.spyOn(input, 'click')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose PDF' }))
+
+    expect(click).toHaveBeenCalled()
+  })
+})
+
+describe('job description step details', () => {
+  it('goes back to the resume step', async () => {
+    renderWizard()
+    fireEvent.click(await screen.findByRole('button', { name: /Backend Dev/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByRole('button', { name: /Backend Engineer/ })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(await screen.findByRole('button', { name: 'Delete resume' })).toBeInTheDocument()
+  })
+
+  it('Change clears the chosen job description', async () => {
+    renderWizard()
+    await pickResumeAndJd()
+    fireEvent.click(await screen.findByRole('button', { name: 'Back' }))
+    await screen.findByRole('button', { name: 'Delete job description' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+
+    expect(screen.queryByRole('button', { name: 'Delete job description' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+})
+
+describe('preset step details', () => {
+  async function goToPresets() {
+    renderWizard()
+    await pickResumeAndJd()
+    await screen.findByRole('radio', { name: /Coding Only/ })
+  }
+
+  it('keeps the chosen duration when the same preset is clicked again', async () => {
+    await goToPresets()
+    fireEvent.click(screen.getByRole('radio', { name: /Coding Only/ }))
+    fireEvent.click(screen.getByRole('button', { name: '10 min' }))
+
+    fireEvent.click(screen.getByRole('radio', { name: /Coding Only/ }))
+
+    expect(screen.getByRole('button', { name: '10 min' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('goes back from the preset step to the job description step', async () => {
+    await goToPresets()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(await screen.findByRole('button', { name: 'Delete job description' })).toBeInTheDocument()
+  })
+
+  it('shows a readable error when the formats cannot be loaded', async () => {
+    mockGets({})
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/interview/presets')) return Promise.reject(new Error('Formats unavailable'))
+      if (path === '/resume') return Promise.resolve([RESUME])
+      if (path === '/jd') return Promise.resolve([JD])
+      return Promise.reject(new Error('unexpected'))
+    })
+    renderWizard()
+    await pickResumeAndJd()
+
+    expect(await screen.findByText('Formats unavailable')).toBeInTheDocument()
+  })
+})
+
+describe('mic check and lobby details', () => {
+  async function goToMicCheck() {
+    renderWizard()
+    await pickResumeAndJd()
+    fireEvent.click(await screen.findByRole('radio', { name: /Full Loop/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  }
+
+  function grantMic(level: number) {
+    vi.stubGlobal('navigator', {
+      mediaDevices: {
+        getUserMedia: vi.fn<(...args: unknown[]) => unknown>().mockResolvedValue({ getTracks: () => [{ stop: vi.fn<(...args: unknown[]) => unknown>() }] }),
+      },
+    })
+    class FakeAudioContext {
+      createAnalyser() {
+        return {
+          fftSize: 0,
+          frequencyBinCount: 4,
+          getByteFrequencyData: (a: Uint8Array) => a.fill(level),
+        }
+      }
+      createMediaStreamSource() {
+        return { connect: vi.fn<(...args: unknown[]) => unknown>() }
+      }
+      close() {
+        return Promise.resolve()
+      }
+    }
+    vi.stubGlobal('AudioContext', FakeAudioContext)
+    vi.stubGlobal('requestAnimationFrame', () => 0)
+    vi.stubGlobal('cancelAnimationFrame', () => undefined)
+  }
+
+  it('asks the candidate to speak until the meter hears a voice', async () => {
+    grantMic(0)
+    await goToMicCheck()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Test microphone' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Speak now')
+  })
+
+  it('returns from the lobby to the mic check', async () => {
+    await goToMicCheck()
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip, use text' }))
+    await screen.findByText('Ready when you are')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(await screen.findByText('Check your microphone')).toBeInTheDocument()
+  })
+
+  it('returns from the mic check to the preset step', async () => {
+    await goToMicCheck()
+    await screen.findByText('Check your microphone')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(await screen.findByRole('radio', { name: /Full Loop/ })).toBeInTheDocument()
   })
 })

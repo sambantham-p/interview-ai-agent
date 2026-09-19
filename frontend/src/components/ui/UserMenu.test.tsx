@@ -4,8 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { UserMenu } from './UserMenu'
 
 const { mockUseAuth, mockLogout } = vi.hoisted(() => ({
-  mockUseAuth: vi.fn(),
-  mockLogout: vi.fn(),
+  mockUseAuth: vi.fn<(...args: unknown[]) => unknown>(),
+  mockLogout: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../../lib/authContext', () => ({

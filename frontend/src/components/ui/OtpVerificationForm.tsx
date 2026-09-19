@@ -8,9 +8,6 @@ interface OtpVerificationFormProps {
   heading: string
   description: ReactNode
   extraContent?: ReactNode
-  devOtp: string
-  devOtpButtonLabel: string
-  onDevOtpClick: () => void
   error: string | null
   otp: string
   onOtpChange: (val: string) => void
@@ -29,9 +26,6 @@ export function OtpVerificationForm({
   heading,
   description,
   extraContent,
-  devOtp,
-  devOtpButtonLabel,
-  onDevOtpClick,
   error,
   otp,
   onOtpChange,
@@ -54,21 +48,6 @@ export function OtpVerificationForm({
       </div>
 
       {extraContent}
-
-      {devOtp && (
-        <div className="p-3 bg-teal-50 border border-teal-200 text-teal-800 text-[13px] rounded-[10px] flex items-center justify-between">
-          <span>
-            Dev code auto-filled: <strong>{devOtp}</strong>
-          </span>
-          <button
-            type="button"
-            onClick={onDevOtpClick}
-            className="font-semibold text-brand underline cursor-pointer"
-          >
-            {devOtpButtonLabel}
-          </button>
-        </div>
-      )}
 
       <ErrorAlert message={error} />
 

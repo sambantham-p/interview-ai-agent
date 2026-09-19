@@ -1,5 +1,6 @@
 import { BrowserRouter, Link, Route, Routes } from 'react-router'
-import { AuthProvider, useAuth } from './lib/authContext'
+import { useAuth } from './lib/authContext'
+import { AuthProvider } from './lib/AuthProvider'
 import { Navigation } from './components/Navigation'
 import { GuestOnlyRoute } from './components/GuestOnlyRoute'
 import { RequireAuthRoute } from './components/RequireAuthRoute'

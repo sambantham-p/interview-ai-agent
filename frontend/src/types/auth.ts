@@ -18,12 +18,10 @@ export interface RegisterResponseData {
   email: string
   otp_sent: boolean
   message: string
-  dev_otp?: string
 }
 
 export interface ForgotPasswordResponseData {
   message: string
-  dev_otp?: string
 }
 
 export interface VerifyResetCodeResponseData {

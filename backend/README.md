@@ -361,8 +361,9 @@ real project number because it never runs the tests that exercise
 whole-project number.
 
 Coverage is enforced, not just reported: `pyproject.toml` sets
-`--cov-fail-under=85` and `branch = true`, so `pytest` **fails the run** if
-statement+branch coverage on `app/` drops below 85% — branch coverage
+`--cov-fail-under=98` and `branch = true`, so `pytest` **fails the run** if
+statement+branch coverage on `app/` drops below 98% (it was 85% until the
+suite held 98%+ on its own; today it is 602 tests at 100%) — branch coverage
 specifically catches an `if/else` where only one side was ever tested. If
 you add code that drops coverage below that, the fix is to add tests, not
 to lower the threshold.

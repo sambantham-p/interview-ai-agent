@@ -23,6 +23,14 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/test/**', 'src/main.tsx', 'src/types/**'],
+      thresholds: {
+        statements: 98,
+        branches: 98,
+        functions: 98,
+        lines: 98,
+      },
     },
   },
 })

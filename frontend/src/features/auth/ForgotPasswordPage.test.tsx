@@ -5,7 +5,7 @@ import { ForgotPasswordPage } from './ForgotPasswordPage'
 import { renderWithQueryClient } from '../../test/renderWithQueryClient'
 
 const { mockForgotPassword } = vi.hoisted(() => ({
-  mockForgotPassword: vi.fn(),
+  mockForgotPassword: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../../lib/authContext', () => ({
@@ -47,20 +47,7 @@ describe('ForgotPasswordPage', () => {
     expect(mockForgotPassword).not.toHaveBeenCalled()
   })
 
-  it('submits and navigates to the reset-verify page with the dev OTP in state', async () => {
-    mockForgotPassword.mockResolvedValueOnce({ message: 'sent', dev_otp: '112233' })
-    renderForgot()
-
-    fireEvent.change(screen.getByLabelText(/Email address/i), {
-      target: { value: 'alex@prepwise.ai' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Send reset code' }))
-
-    await waitFor(() => expect(screen.getByText('Reset Verify Page')).toBeInTheDocument())
-    expect(mockForgotPassword).toHaveBeenCalledWith('alex@prepwise.ai')
-  })
-
-  it('navigates with a null devOtp when the backend omits it', async () => {
+  it('submits and navigates to the reset-verify page', async () => {
     mockForgotPassword.mockResolvedValueOnce({ message: 'sent' })
     renderForgot()
 
@@ -70,6 +57,7 @@ describe('ForgotPasswordPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send reset code' }))
 
     await waitFor(() => expect(screen.getByText('Reset Verify Page')).toBeInTheDocument())
+    expect(mockForgotPassword).toHaveBeenCalledWith('alex@prepwise.ai')
   })
 
   it('shows the error message from a failed request', async () => {

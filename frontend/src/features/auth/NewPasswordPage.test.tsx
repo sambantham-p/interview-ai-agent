@@ -5,13 +5,13 @@ import { NewPasswordPage } from './NewPasswordPage'
 import { renderWithQueryClient } from '../../test/renderWithQueryClient'
 
 const { mockResetPassword } = vi.hoisted(() => ({
-  mockResetPassword: vi.fn(),
+  mockResetPassword: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../../lib/authContext', () => ({
   useAuth: () => ({
     resetPassword: mockResetPassword,
-    logout: vi.fn(),
+    logout: vi.fn<(...args: unknown[]) => unknown>(),
   }),
 }))
 

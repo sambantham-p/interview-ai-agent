@@ -5,8 +5,8 @@ import { VerifyOtpPage } from './VerifyOtpPage'
 import { renderWithQueryClient } from '../../test/renderWithQueryClient'
 
 const { mockVerifyOtp, mockResendOtp } = vi.hoisted(() => ({
-  mockVerifyOtp: vi.fn(),
-  mockResendOtp: vi.fn(),
+  mockVerifyOtp: vi.fn<(...args: unknown[]) => unknown>(),
+  mockResendOtp: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../../lib/authContext', () => ({

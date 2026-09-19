@@ -1,9 +1,12 @@
+import pytest
 from google.genai import types
 from pydantic import BaseModel
 from pytest_mock import MockerFixture
 
 from app.core.config import ElevenLabsSettings, GatewaySettings
+from app.core.elevenlabs_client import ElevenLabsRequestError, ElevenLabsTransientError
 from app.core.llm_gateway import (
+    SpeechAudio,
     generate_structured,
     generate_structured_with_tools,
     stream_text,
@@ -441,3 +444,258 @@ def test_gateway_settings_model_for_task_raises_for_unknown_task() -> None:
         raise AssertionError("expected KeyError")
     except KeyError:
         pass
+
+
+def test_truncate_caps_long_text_and_leaves_short_text_alone() -> None:
+    from app.core.llm_gateway import _MAX_LOGGED_CHARS, _truncate
+
+    assert _truncate("short") == "short"
+    truncated = _truncate("x" * (_MAX_LOGGED_CHARS + 10))
+    assert truncated.endswith("...[truncated]")
+    assert len(truncated) == _MAX_LOGGED_CHARS + len("...[truncated]")
+
+
+async def test_log_call_swallows_database_failures(mocker: MockerFixture) -> None:
+    from app.core.llm_gateway import _log_call
+
+    fake_log_db = _mock_log_session(mocker)
+    fake_log_db.commit = mocker.AsyncMock(side_effect=RuntimeError("db down"))
+
+    await _log_call(
+        task="t",
+        model="m",
+        session_id=None,
+        prompt="p",
+        response="r",
+        latency_seconds=0.1,
+        usage=None,
+        error=None,
+    )
+
+
+def test_usage_recorder_remembers_the_last_usage() -> None:
+    from app.core.llm_gateway import _UsageRecorder
+
+    recorder = _UsageRecorder()
+    assert recorder.usage is None
+    recorder("usage")
+    assert recorder.usage == "usage"
+
+
+async def test_transcribe_speech_returns_text_and_logs_audio_size(
+    mocker: MockerFixture,
+) -> None:
+    from app.core.llm_gateway import transcribe_speech
+
+    _mock_gateway_settings(mocker)
+    fake_log_db = _mock_log_session(mocker)
+    fake_transcribe = mocker.patch(
+        "app.core.llm_gateway.transcribe_audio",
+        new_callable=mocker.AsyncMock,
+        return_value="hello world",
+    )
+
+    text = await transcribe_speech(
+        audio_bytes=b"12345",
+        mime_type="audio/webm",
+        session_id=None,
+        user_id=None,
+        db=mocker.AsyncMock(),
+        vocabulary=["Python"],
+    )
+
+    assert text == "hello world"
+    assert fake_transcribe.call_args.kwargs["model"] == "gemini-stt"
+    assert fake_transcribe.call_args.kwargs["vocabulary"] == ["Python"]
+    logged = fake_log_db.add.call_args.args[0]
+    assert logged.task == "stt"
+    assert logged.extra == {"audio_bytes": 5, "mime_type": "audio/webm"}
+    assert logged.error is None
+
+
+async def test_transcribe_speech_logs_error_and_reraises(mocker: MockerFixture) -> None:
+    from app.core.llm_gateway import transcribe_speech
+
+    _mock_gateway_settings(mocker)
+    fake_log_db = _mock_log_session(mocker)
+    mocker.patch(
+        "app.core.llm_gateway.transcribe_audio",
+        new_callable=mocker.AsyncMock,
+        side_effect=RuntimeError("stt down"),
+    )
+
+    with pytest.raises(RuntimeError, match="stt down"):
+        await transcribe_speech(
+            audio_bytes=b"1",
+            mime_type="audio/webm",
+            session_id=None,
+            user_id=None,
+            db=mocker.AsyncMock(),
+        )
+
+    assert fake_log_db.add.call_args.args[0].error == "stt down"
+
+
+async def test_synthesize_speech_gemini_wraps_pcm_as_wav_and_logs(
+    mocker: MockerFixture,
+) -> None:
+    from app.core.llm_gateway import _synthesize_speech_gemini
+
+    _mock_gateway_settings(mocker)
+    fake_log_db = _mock_log_session(mocker)
+    mocker.patch(
+        "app.core.llm_gateway.generate_speech",
+        new_callable=mocker.AsyncMock,
+        return_value=b"\x00\x00" * 10,
+    )
+
+    speech = await _synthesize_speech_gemini(text="Hello", session_id=None)
+
+    assert speech.media_type == "audio/wav"
+    assert speech.audio.startswith(b"RIFF")
+    assert fake_log_db.add.call_args.args[0].task == "tts_gemini"
+
+
+async def test_synthesize_speech_gemini_logs_error_and_reraises(
+    mocker: MockerFixture,
+) -> None:
+    from app.core.llm_gateway import _synthesize_speech_gemini
+
+    _mock_gateway_settings(mocker)
+    fake_log_db = _mock_log_session(mocker)
+    mocker.patch(
+        "app.core.llm_gateway.generate_speech",
+        new_callable=mocker.AsyncMock,
+        side_effect=RuntimeError("tts down"),
+    )
+
+    with pytest.raises(RuntimeError, match="tts down"):
+        await _synthesize_speech_gemini(text="Hello", session_id=None)
+
+    assert fake_log_db.add.call_args.args[0].error == "tts down"
+
+
+async def test_voice_task_in_use_returns_the_latest_successful_task(
+    mocker: MockerFixture,
+) -> None:
+    from app.core.llm_gateway import _voice_task_in_use
+
+    db = mocker.AsyncMock()
+    db.execute.return_value = mocker.MagicMock(
+        scalar_one_or_none=mocker.MagicMock(return_value="tts")
+    )
+
+    assert await _voice_task_in_use(5, db) == "tts"
+
+
+def _patch_fallback_dependencies(mocker: MockerFixture, voice_in_use: str | None):
+    mocker.patch(
+        "app.core.llm_gateway._authorize_session", new_callable=mocker.AsyncMock
+    )
+    mocker.patch(
+        "app.core.llm_gateway._voice_task_in_use",
+        new_callable=mocker.AsyncMock,
+        return_value=voice_in_use,
+    )
+    gemini = mocker.patch(
+        "app.core.llm_gateway._synthesize_speech_gemini",
+        new_callable=mocker.AsyncMock,
+        return_value=SpeechAudio(audio=b"wav", media_type="audio/wav"),
+    )
+    eleven = mocker.patch(
+        "app.core.llm_gateway.synthesize_speech", new_callable=mocker.AsyncMock
+    )
+    return gemini, eleven
+
+
+async def test_fallback_uses_elevenlabs_when_available(mocker: MockerFixture) -> None:
+    from app.core.llm_gateway import synthesize_speech_with_fallback
+
+    gemini, eleven = _patch_fallback_dependencies(mocker, None)
+    eleven.return_value = b"mp3"
+
+    speech = await synthesize_speech_with_fallback(
+        text="Hi", session_id=3, user_id="u", db=mocker.AsyncMock()
+    )
+
+    assert speech == SpeechAudio(audio=b"mp3", media_type="audio/mpeg")
+    gemini.assert_not_called()
+
+
+async def test_fallback_stays_on_gemini_once_the_session_uses_it(
+    mocker: MockerFixture,
+) -> None:
+    from app.core.llm_gateway import synthesize_speech_with_fallback
+
+    gemini, eleven = _patch_fallback_dependencies(mocker, "tts_gemini")
+
+    speech = await synthesize_speech_with_fallback(
+        text="Hi", session_id=3, user_id="u", db=mocker.AsyncMock()
+    )
+
+    assert speech.media_type == "audio/wav"
+    eleven.assert_not_called()
+    gemini.assert_awaited_once()
+
+
+async def test_fallback_switches_to_gemini_before_any_audio_was_produced(
+    mocker: MockerFixture,
+) -> None:
+    from app.core.llm_gateway import synthesize_speech_with_fallback
+
+    gemini, eleven = _patch_fallback_dependencies(mocker, None)
+    eleven.side_effect = ElevenLabsTransientError("down")
+
+    speech = await synthesize_speech_with_fallback(
+        text="Hi", session_id=None, user_id=None, db=mocker.AsyncMock()
+    )
+
+    assert speech.media_type == "audio/wav"
+    gemini.assert_awaited_once()
+
+
+async def test_fallback_never_switches_voice_mid_interview(
+    mocker: MockerFixture,
+) -> None:
+    from app.core.llm_gateway import synthesize_speech_with_fallback
+
+    gemini, eleven = _patch_fallback_dependencies(mocker, "tts")
+    eleven.side_effect = ElevenLabsRequestError("bad request", status_code=400)
+
+    with pytest.raises(ElevenLabsRequestError):
+        await synthesize_speech_with_fallback(
+            text="Hi", session_id=3, user_id="u", db=mocker.AsyncMock()
+        )
+
+    gemini.assert_not_called()
+
+
+async def test_stream_text_skips_chunks_without_text(mocker: MockerFixture) -> None:
+    _mock_gateway_settings(mocker)
+
+    async def _fake_stream():
+        yield mocker.MagicMock(text="", usage_metadata=None)
+        yield mocker.MagicMock(text="Hi", usage_metadata=None)
+
+    fake_client = mocker.MagicMock()
+    fake_client.aio.models.generate_content_stream = mocker.AsyncMock(
+        return_value=_fake_stream()
+    )
+    mocker.patch("app.core.llm_gateway.get_gemini_client", return_value=fake_client)
+    _mock_log_session(mocker)
+
+    chunks = [
+        chunk
+        async for chunk in stream_text(
+            task="interviewer",
+            contents=[
+                types.Content(role="user", parts=[types.Part.from_text(text="hi")])
+            ],
+            system_instruction="system",
+            thinking_level="low",
+            session_id=None,
+            db=mocker.AsyncMock(),
+        )
+    ]
+
+    assert chunks == ["Hi"]
