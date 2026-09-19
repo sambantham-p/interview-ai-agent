@@ -158,3 +158,46 @@ async def test_scoped_dispatch_rejects_a_different_owner_for_read_file(
         await dispatch["read_file"](owner="torvalds", repo="linux", path="README.md")
 
     fake_read_file.assert_not_awaited()
+
+
+async def test_scoped_dispatch_forwards_list_repo_files_for_the_own_account(
+    mocker: MockerFixture,
+) -> None:
+    fake = mocker.patch(
+        "app.core.github_tools.list_repo_files",
+        new_callable=mocker.AsyncMock,
+        return_value=[{"name": "README.md"}],
+    )
+    dispatch = build_scoped_github_dispatch("octocat")
+
+    result = await dispatch["list_repo_files"](owner="octocat", repo="r")
+
+    fake.assert_awaited_once_with(owner="octocat", repo="r", path="")
+    assert result == [{"name": "README.md"}]
+
+
+async def test_scoped_dispatch_forwards_read_file_for_the_own_account(
+    mocker: MockerFixture,
+) -> None:
+    fake = mocker.patch(
+        "app.core.github_tools.read_file",
+        new_callable=mocker.AsyncMock,
+        return_value="content",
+    )
+    dispatch = build_scoped_github_dispatch("octocat")
+
+    result = await dispatch["read_file"](owner="octocat", repo="r", path="README.md")
+
+    fake.assert_awaited_once_with(owner="octocat", repo="r", path="README.md")
+    assert result == "content"
+
+
+async def test_scoped_dispatch_rejects_other_owners_for_file_tools(
+    mocker: MockerFixture,
+) -> None:
+    dispatch = build_scoped_github_dispatch("octocat")
+
+    with pytest.raises(ValueError, match="Not permitted"):
+        await dispatch["list_repo_files"](owner="someone-else", repo="r")
+    with pytest.raises(ValueError, match="Not permitted"):
+        await dispatch["read_file"](owner="someone-else", repo="r", path="x")

@@ -9,6 +9,11 @@ from app.core.elevenlabs_client import ElevenLabsRequestError, ElevenLabsTransie
 from app.core.gemini_client import GeminiResponseParseError, GeminiTransientError
 from app.core.responses import error_response
 from app.core.security import InvalidSessionTokenError
+from app.services.document_service import (
+    DocumentInUseError,
+    DocumentNotFoundError,
+    DuplicateDocumentError,
+)
 from app.services.jd_service import JobDescriptionExtractionError
 from app.services.resume_service import ResumeExtractionError
 
@@ -98,6 +103,24 @@ async def handle_resume_extraction_error(
     )
 
 
+async def handle_duplicate_document_error(
+    request: Request, exc: DuplicateDocumentError
+) -> JSONResponse:
+    return error_response(message=str(exc), status_code=httpx.codes.CONFLICT)
+
+
+async def handle_document_in_use_error(
+    request: Request, exc: DocumentInUseError
+) -> JSONResponse:
+    return error_response(message=str(exc), status_code=httpx.codes.CONFLICT)
+
+
+async def handle_document_not_found_error(
+    request: Request, exc: DocumentNotFoundError
+) -> JSONResponse:
+    return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)
+
+
 async def handle_invalid_session_token_error(
     request: Request, exc: InvalidSessionTokenError
 ) -> JSONResponse:
@@ -126,6 +149,9 @@ def register_exception_handlers(app: FastAPI) -> None:
         JobDescriptionExtractionError, handle_job_description_extraction_error
     )
     app.add_exception_handler(ResumeExtractionError, handle_resume_extraction_error)
+    app.add_exception_handler(DuplicateDocumentError, handle_duplicate_document_error)
+    app.add_exception_handler(DocumentInUseError, handle_document_in_use_error)
+    app.add_exception_handler(DocumentNotFoundError, handle_document_not_found_error)
     app.add_exception_handler(
         InvalidSessionTokenError, handle_invalid_session_token_error
     )

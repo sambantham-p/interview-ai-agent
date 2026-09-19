@@ -1,9 +1,11 @@
 import pytest
 from pytest_mock import MockerFixture
 
-from app.schemas.jd import JobDescriptionExtraction
+from app.dto.jd import JobDescriptionExtraction
+from app.models.job_description import JobDescription
 from app.services.jd_service import (
     JobDescriptionExtractionError,
+    list_job_descriptions,
     parse_and_persist_job_description,
 )
 
@@ -34,6 +36,7 @@ async def test_parse_and_persist_job_description_builds_and_persists_a_jd(
     fake_extract_structured = _mock_gemini(mocker, extracted)
     fake_db = mocker.AsyncMock()
     fake_db.add = mocker.MagicMock()
+    fake_db.scalar.return_value = None
 
     jd = await parse_and_persist_job_description(
         full_text=(
@@ -71,6 +74,7 @@ async def test_parse_and_persist_job_description_persists_company_name_when_extr
     _mock_gemini(mocker, extracted)
     fake_db = mocker.AsyncMock()
     fake_db.add = mocker.MagicMock()
+    fake_db.scalar.return_value = None
 
     jd = await parse_and_persist_job_description(
         full_text=(
@@ -99,6 +103,7 @@ async def test_parse_and_persist_job_description_uses_short_description_when_giv
     _mock_gemini(mocker, extracted)
     fake_db = mocker.AsyncMock()
     fake_db.add = mocker.MagicMock()
+    fake_db.scalar.return_value = None
 
     jd = await parse_and_persist_job_description(
         full_text=None,
@@ -124,6 +129,7 @@ async def test_parse_and_persist_job_description_defaults_coding_assessment_to_f
     _mock_gemini(mocker, extracted)
     fake_db = mocker.AsyncMock()
     fake_db.add = mocker.MagicMock()
+    fake_db.scalar.return_value = None
 
     jd = await parse_and_persist_job_description(
         full_text=(
@@ -150,6 +156,7 @@ async def test_parse_and_persist_job_description_raises_when_input_is_not_extrac
     _mock_gemini(mocker, extracted)
     fake_db = mocker.AsyncMock()
     fake_db.add = mocker.MagicMock()
+    fake_db.scalar.return_value = None
 
     with pytest.raises(
         JobDescriptionExtractionError, match="doesn't describe any job role"
@@ -189,8 +196,9 @@ async def test_parse_and_persist_job_description_raises_when_a_required_field_is
     _mock_gemini(mocker, extracted)
     fake_db = mocker.AsyncMock()
     fake_db.add = mocker.MagicMock()
+    fake_db.scalar.return_value = None
 
-    with pytest.raises(JobDescriptionExtractionError, match="Could not determine"):
+    with pytest.raises(JobDescriptionExtractionError, match="missing details we need"):
         await parse_and_persist_job_description(
             full_text="A real job description with plenty of detail " * 3,
             short_description=None,
@@ -216,8 +224,9 @@ async def test_parse_and_persist_job_description_rejects_an_unsupported_seniorit
     _mock_gemini(mocker, extracted)
     fake_db = mocker.AsyncMock()
     fake_db.add = mocker.MagicMock()
+    fake_db.scalar.return_value = None
 
-    with pytest.raises(JobDescriptionExtractionError, match="not one of"):
+    with pytest.raises(JobDescriptionExtractionError, match="experience level"):
         await parse_and_persist_job_description(
             full_text="A real job description with plenty of detail " * 3,
             short_description=None,
@@ -239,7 +248,9 @@ async def test_parse_and_persist_job_description_rejects_a_bare_title_as_full_te
     )
     fake_db = mocker.AsyncMock()
 
-    with pytest.raises(JobDescriptionExtractionError, match="bare title"):
+    with pytest.raises(
+        JobDescriptionExtractionError, match="too short to be a full job description"
+    ):
         await parse_and_persist_job_description(
             full_text="Senior Software Engineer.",
             short_description=None,
@@ -260,7 +271,9 @@ async def test_parse_and_persist_job_description_rejects_a_too_short_short_descr
     )
     fake_db = mocker.AsyncMock()
 
-    with pytest.raises(JobDescriptionExtractionError, match="too short"):
+    with pytest.raises(
+        JobDescriptionExtractionError, match="too short to identify a role"
+    ):
         await parse_and_persist_job_description(
             full_text=None,
             short_description="Engineer",
@@ -287,6 +300,7 @@ async def test_parse_and_persist_job_description_allows_a_short_short_descriptio
     _mock_gemini(mocker, extracted)
     fake_db = mocker.AsyncMock()
     fake_db.add = mocker.MagicMock()
+    fake_db.scalar.return_value = None
 
     jd = await parse_and_persist_job_description(
         full_text=None,
@@ -296,3 +310,64 @@ async def test_parse_and_persist_job_description_allows_a_short_short_descriptio
     )
 
     assert jd.role == "AI Engineer"
+
+
+def _mock_db_with_jds(mocker: MockerFixture, jds: list[JobDescription]):
+    fake_result = mocker.MagicMock()
+    fake_result.scalars.return_value.all.return_value = jds
+    fake_db = mocker.AsyncMock()
+    fake_db.execute = mocker.AsyncMock(return_value=fake_result)
+    return fake_db
+
+
+async def test_list_job_descriptions_returns_jds_for_the_given_user(
+    mocker: MockerFixture,
+) -> None:
+    jds = [
+        JobDescription(
+            id=1,
+            user_id="usr_a",
+            role="Backend Engineer",
+            seniority="mid",
+            tech_stack=["Python"],
+            coding_assessment_expected=True,
+        ),
+    ]
+    fake_db = _mock_db_with_jds(mocker, jds)
+
+    result = await list_job_descriptions("usr_a", fake_db)
+
+    assert result == jds
+    fake_db.execute.assert_awaited_once()
+
+
+async def test_list_job_descriptions_returns_empty_list_when_user_has_none(
+    mocker: MockerFixture,
+) -> None:
+    fake_db = _mock_db_with_jds(mocker, [])
+
+    result = await list_job_descriptions("usr_a", fake_db)
+
+    assert result == []
+
+
+async def test_parse_and_persist_job_description_rejects_a_duplicate_before_calling_gemini(
+    mocker: MockerFixture,
+) -> None:
+    from app.services.document_service import DuplicateDocumentError
+
+    fake_extract = mocker.patch(
+        "app.services.jd_service.extract_structured", new_callable=mocker.AsyncMock
+    )
+    fake_db = mocker.AsyncMock()
+    fake_db.scalar.return_value = 1
+
+    with pytest.raises(DuplicateDocumentError):
+        await parse_and_persist_job_description(
+            full_text=None,
+            short_description="AI Engineer, mid-level, Python",
+            db=fake_db,
+            user_id="usr_test123",
+        )
+
+    fake_extract.assert_not_called()

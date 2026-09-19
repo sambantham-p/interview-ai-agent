@@ -9,7 +9,7 @@ from google.genai import types
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.constants.interview import HINT_PENALTY_BY_LEVEL
+from app.constants.interview import FINISHED_SESSION_STATUSES, HINT_PENALTY_BY_LEVEL
 from app.constants.judge import (
     ATTITUDE_ABUSIVE_LANGUAGE_SCORE_CAP,
     JUDGE_ATTITUDE,
@@ -28,11 +28,11 @@ from app.constants.judge import (
     RECOMMENDATION_TIERS,
 )
 from app.core.llm_gateway import generate_structured
+from app.dto.judge import JudgeOutput
 from app.models.interview_report import InterviewReport
 from app.models.interview_session import InterviewSession
 from app.models.job_description import JobDescription
 from app.models.judge_evaluation import JudgeEvaluation
-from app.schemas.judge import JudgeOutput
 from app.services.judge_prompts import (
     ATTITUDE_INSTRUCTIONS,
     CAREER_FIT_INSTRUCTIONS,
@@ -49,7 +49,10 @@ __all__ = [
     "generate_report",
     "get_evaluations_by_ids",
     "get_latest_report",
+    "get_report_evaluations",
+    "list_finished_interviews_with_reports",
 ]
+
 
 _JUDGE_TASK_BY_NAME = {
     JUDGE_PROJECT_DEPTH: LLM_TASK_JUDGE_PROJECT_DEPTH,
@@ -257,7 +260,7 @@ async def generate_report(
     session object itself to build the response, so fetching it a second
     time here would be a redundant round-trip.
     """
-    if session.status not in ("completed", "ended_early"):
+    if session.status not in FINISHED_SESSION_STATUSES:
         raise InterviewSessionNotReadyForReportError(
             f"Interview session {session.id} is {session.status}, not ready for a report"
         )
@@ -297,6 +300,44 @@ async def generate_report(
     return report
 
 
+async def list_finished_interviews_with_reports(
+    *, user_id: str, db: AsyncSession
+) -> list[tuple[InterviewSession, JobDescription, InterviewReport | None]]:
+    """Every finished interview the user has, newest first, each with the
+    job it was for and its most recent report (None until one has been
+    generated).
+    """
+    rows = (
+        await db.execute(
+            select(InterviewSession, JobDescription)
+            .join(
+                JobDescription, JobDescription.id == InterviewSession.job_description_id
+            )
+            .where(
+                InterviewSession.user_id == user_id,
+                InterviewSession.status.in_(FINISHED_SESSION_STATUSES),
+            )
+            .order_by(InterviewSession.created_at.desc())
+        )
+    ).all()
+    if not rows:
+        return []
+
+    latest_reports = (
+        await db.execute(
+            select(InterviewReport)
+            .where(InterviewReport.session_id.in_([session.id for session, _ in rows]))
+            .order_by(InterviewReport.session_id, InterviewReport.created_at.desc())
+            .distinct(InterviewReport.session_id)
+        )
+    ).scalars()
+    report_by_session = {report.session_id: report for report in latest_reports}
+    return [
+        (session, job_description, report_by_session.get(session.id))
+        for session, job_description in rows
+    ]
+
+
 async def get_latest_report(
     *, session: InterviewSession, db: AsyncSession
 ) -> InterviewReport:
@@ -334,3 +375,10 @@ async def get_evaluations_by_ids(
     )
     by_id = {e.id: e for e in result.scalars().all()}
     return [by_id[i] for i in ids if i in by_id]
+
+
+async def get_report_evaluations(
+    report: InterviewReport, db: AsyncSession
+) -> list[JudgeEvaluation]:
+    """Fetches JudgeEvaluation rows associated with an InterviewReport."""
+    return await get_evaluations_by_ids(report.judge_evaluation_ids, db)

@@ -10,6 +10,7 @@ def test_user_table_name_and_columns() -> None:
         "email",
         "name",
         "picture",
+        "preferred_name",
         "password_hash",
         "auth_provider",
         "google_id",

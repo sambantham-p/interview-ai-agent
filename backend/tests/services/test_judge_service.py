@@ -12,9 +12,9 @@ from app.constants.judge import (
     JUDGE_PROJECT_DEPTH,
     JUDGE_WEIGHTS,
 )
+from app.dto.judge import JudgeEvidenceItem, JudgeOutput
 from app.models.interview_session import InterviewSession
 from app.models.job_description import JobDescription
-from app.schemas.judge import JudgeEvidenceItem, JudgeOutput
 from app.services.judge_service import (
     InterviewReportNotFoundError,
     InterviewSessionNotReadyForReportError,
@@ -478,3 +478,62 @@ async def test_get_evaluations_by_ids_preserves_input_order(
     result = await get_evaluations_by_ids([1, 2], fake_db)
 
     assert result == [eval_a, eval_b]
+
+
+def test_tier_for_score_falls_back_to_the_lowest_tier_for_negative_scores() -> None:
+    assert _tier_for_score(-5) == "no_hire"
+
+
+async def test_get_report_evaluations_loads_the_reports_judge_rows(
+    mocker: MockerFixture,
+) -> None:
+    from app.models.interview_report import InterviewReport
+    from app.services.judge_service import get_report_evaluations
+
+    fake_get = mocker.patch(
+        "app.services.judge_service.get_evaluations_by_ids",
+        new_callable=mocker.AsyncMock,
+        return_value=["evaluation"],
+    )
+    report = InterviewReport(id=1, session_id=2, judge_evaluation_ids=[4, 5])
+    db = mocker.AsyncMock()
+
+    assert await get_report_evaluations(report, db) == ["evaluation"]
+    fake_get.assert_awaited_once_with([4, 5], db)
+
+
+async def test_list_finished_interviews_returns_empty_when_there_are_none(
+    mocker: MockerFixture,
+) -> None:
+    from app.services.judge_service import list_finished_interviews_with_reports
+
+    db = mocker.AsyncMock()
+    db.execute.return_value = mocker.MagicMock(all=mocker.MagicMock(return_value=[]))
+
+    assert await list_finished_interviews_with_reports(user_id="u", db=db) == []
+    assert db.execute.await_count == 1
+
+
+async def test_list_finished_interviews_pairs_each_session_with_its_latest_report(
+    mocker: MockerFixture,
+) -> None:
+    from app.models.interview_report import InterviewReport
+    from app.services.judge_service import list_finished_interviews_with_reports
+
+    with_report = InterviewSession(id=1)
+    without_report = InterviewSession(id=2)
+    job = JobDescription(id=9, role="Engineer")
+    report = InterviewReport(id=5, session_id=1)
+    db = mocker.AsyncMock()
+    db.execute.side_effect = [
+        mocker.MagicMock(
+            all=mocker.MagicMock(
+                return_value=[(with_report, job), (without_report, job)]
+            )
+        ),
+        mocker.MagicMock(scalars=mocker.MagicMock(return_value=[report])),
+    ]
+
+    rows = await list_finished_interviews_with_reports(user_id="u", db=db)
+
+    assert rows == [(with_report, job, report), (without_report, job, None)]

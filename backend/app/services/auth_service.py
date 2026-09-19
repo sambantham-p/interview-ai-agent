@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 import structlog
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants.auth import (
@@ -25,6 +25,8 @@ from app.core.security import (
     verify_password,
 )
 from app.models.email_otp import EmailOTP
+from app.models.interview_session import InterviewSession
+from app.models.llm_call import LLMCall
 from app.models.password_reset_otp import PasswordResetOTP
 from app.models.user import User
 from app.services.email_service import (
@@ -95,6 +97,12 @@ class EmailAlreadyRegisteredError(Exception):
 class WeakPasswordError(Exception):
     """Raised when a registration password fails validate_password_strength().
     str(exc) is the specific rule that failed, safe to show the candidate.
+    """
+
+
+class PasswordReuseError(Exception):
+    """Raised when a reset's new password is the same as the current one.
+    str(exc) is safe to show the candidate.
     """
 
 
@@ -474,8 +482,43 @@ async def reset_password(
     if user is None:
         raise PasswordResetTokenInvalidError("Invalid or expired reset token.")
 
+    if user.password_hash and verify_password(new_password, user.password_hash):
+        raise PasswordReuseError(
+            "Your new password must be different from your current password."
+        )
+
     user.password_hash = hash_password(new_password)
     user.token_version += 1
     await session.commit()
 
     logger.info("password_reset_completed", user_id=user.id, email=email)
+
+
+async def update_preferred_name(
+    session: AsyncSession, user: User, preferred_name: str
+) -> User:
+    """Sets the name the candidate wants to be addressed by; blank clears it."""
+    user.preferred_name = preferred_name.strip() or None
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+async def delete_account(session: AsyncSession, user: User) -> None:
+    """Permanently removes the user and everything tied to them.
+
+    Resumes, job descriptions, interviews, evaluations and reports go via
+    the users FK cascade. `llm_calls` only null their session link on
+    delete and hold prompt/response text (resume and transcript content),
+    so they are deleted explicitly first, along with any pending OTP rows
+    for the email.
+    """
+    session_ids = select(InterviewSession.id).where(InterviewSession.user_id == user.id)
+    await session.execute(delete(LLMCall).where(LLMCall.session_id.in_(session_ids)))
+    await session.execute(delete(EmailOTP).where(EmailOTP.email == user.email))
+    await session.execute(
+        delete(PasswordResetOTP).where(PasswordResetOTP.email == user.email)
+    )
+    await session.delete(user)
+    await session.commit()
+    logger.info("account_deleted", user_id=user.id, email=user.email)

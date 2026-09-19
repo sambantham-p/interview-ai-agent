@@ -22,10 +22,8 @@ export function ForgotPasswordPage() {
       forgotPassword(email).catch((err: unknown) => {
         throw new Error(toErrorMessage(err, 'Something went wrong. Please try again.'))
       }),
-    onSuccess: (result) => {
-      navigate(`/reset-password/verify?email=${encodeURIComponent(email)}`, {
-        state: { devOtp: result.dev_otp ?? null },
-      })
+    onSuccess: () => {
+      navigate(`/reset-password/verify?email=${encodeURIComponent(email)}`)
     },
   })
 

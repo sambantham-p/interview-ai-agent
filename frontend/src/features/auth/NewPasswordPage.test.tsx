@@ -5,12 +5,13 @@ import { NewPasswordPage } from './NewPasswordPage'
 import { renderWithQueryClient } from '../../test/renderWithQueryClient'
 
 const { mockResetPassword } = vi.hoisted(() => ({
-  mockResetPassword: vi.fn(),
+  mockResetPassword: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../../lib/authContext', () => ({
   useAuth: () => ({
     resetPassword: mockResetPassword,
+    logout: vi.fn<(...args: unknown[]) => unknown>(),
   }),
 }))
 
@@ -55,15 +56,13 @@ describe('NewPasswordPage', () => {
     fireEvent.change(screen.getByLabelText(/Confirm new password/i), {
       target: { value: 'Different#2026' },
     })
-    expect(screen.getByText('Passwords do not match yet.')).toBeInTheDocument()
+    expect(screen.getByText('Passwords do not match')).toBeInTheDocument()
   })
 
-  it('shows a requirements message while the password is weak', () => {
+  it('shows the strength meter while the password is weak', () => {
     renderNewPassword('a-token')
     fireEvent.change(screen.getByLabelText(/^New password/i), { target: { value: 'weak' } })
-    expect(
-      screen.getByText(/Password must be 8\+ characters/)
-    ).toBeInTheDocument()
+    expect(screen.getByText('Weak password')).toBeInTheDocument()
   })
 
   it('resets the password, shows the success state, then navigates to /login', async () => {
@@ -134,7 +133,7 @@ describe('NewPasswordPage', () => {
     fireEvent.submit(
       screen.getByRole('button', { name: 'Update password' }).closest('form')!
     )
-    expect(screen.getByText('Passwords do not match.')).toBeInTheDocument()
+    expect(screen.getByText('Passwords do not match')).toBeInTheDocument()
     expect(mockResetPassword).not.toHaveBeenCalled()
   })
 

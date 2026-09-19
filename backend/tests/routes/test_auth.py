@@ -554,3 +554,58 @@ def test_get_me_with_token_for_deleted_user_returns_401(
 
     assert response.status_code == 401
     assert response.json()["success"] is False
+
+
+def test_register_weak_password_from_service_returns_422(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services import auth_service
+
+    async def mock_register(**kwargs):
+        raise auth_service.WeakPasswordError("Password is too weak.")
+
+    monkeypatch.setattr(
+        "app.services.auth_service.create_pending_registration", mock_register
+    )
+
+    response = client.post(
+        f"{API_V1_PREFIX}/auth/register",
+        json={"email": "a@b.co", "name": "Jane", "password": "Str0ng!Passw0rd"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["success"] is False
+
+
+def test_update_profile_sets_the_preferred_name(
+    authed_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def mock_update(session, user, preferred_name):
+        user.preferred_name = preferred_name
+        return user
+
+    monkeypatch.setattr("app.services.auth_service.update_preferred_name", mock_update)
+
+    response = authed_client.patch(
+        f"{API_V1_PREFIX}/auth/me", json={"preferred_name": "Sam"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["user"]["preferred_name"] == "Sam"
+
+
+def test_delete_account_returns_confirmation(
+    authed_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    called: dict[str, bool] = {}
+
+    async def mock_delete(session, user):
+        called["deleted"] = True
+
+    monkeypatch.setattr("app.services.auth_service.delete_account", mock_delete)
+
+    response = authed_client.delete(f"{API_V1_PREFIX}/auth/me")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["message"] == "Your account has been deleted."
+    assert called == {"deleted": True}

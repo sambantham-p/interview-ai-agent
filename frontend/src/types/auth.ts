@@ -2,6 +2,7 @@ export interface User {
   id: string
   email: string
   name: string
+  preferred_name?: string | null
   picture: string | null
   auth_provider: 'google' | 'email'
   is_verified: boolean
@@ -17,12 +18,10 @@ export interface RegisterResponseData {
   email: string
   otp_sent: boolean
   message: string
-  dev_otp?: string
 }
 
 export interface ForgotPasswordResponseData {
   message: string
-  dev_otp?: string
 }
 
 export interface VerifyResetCodeResponseData {
@@ -38,4 +37,8 @@ export interface AuthState {
   token: string | null
   isAuthenticated: boolean
   isLoading: boolean
+}
+
+export interface UserResponseData {
+  user: User
 }

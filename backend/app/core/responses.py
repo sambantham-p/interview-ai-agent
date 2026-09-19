@@ -5,7 +5,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 from app.constants.responses import RESPONSE_STATUS_ERROR, RESPONSE_STATUS_OK
-from app.schemas.response import APIResponse, ErrorDetail
+from app.dto.response import APIResponse, ErrorDetail
 
 
 def success_response(

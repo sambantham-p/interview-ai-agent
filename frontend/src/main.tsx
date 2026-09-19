@@ -5,6 +5,7 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import './index.css'
 import { App } from './App'
 import { queryClient } from './app/queryClient'
+import { ToastProvider } from './lib/ToastProvider'
 import { RootErrorBoundary } from './components/RootErrorBoundary'
 
 const rootElement = document.getElementById('root')
@@ -16,7 +17,9 @@ createRoot(rootElement).render(
   <StrictMode>
     <RootErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <App />
+        <ToastProvider>
+          <App />
+        </ToastProvider>
         <ReactQueryDevtools initialIsOpen={false} />
       </QueryClientProvider>
     </RootErrorBoundary>

@@ -13,6 +13,7 @@ def test_table_name_and_columns() -> None:
         "seniority",
         "tech_stack",
         "coding_assessment_expected",
+        "content_hash",
         "created_at",
     }
 

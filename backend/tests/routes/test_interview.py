@@ -25,6 +25,8 @@ def _fake_session(**overrides) -> InterviewSession:
         "red_flag_count": 0,
         "red_flag_warning_issued": False,
         "hint_counts": {},
+        "selected_phases": [],
+        "phase_time_budget": {},
         "created_at": datetime(2026, 1, 1, tzinfo=UTC),
     }
     defaults.update(overrides)
@@ -171,7 +173,7 @@ def test_create_report_returns_201_with_full_report(
         return_value=_fake_session(),
     )
     mocker.patch(
-        "app.routes.interview.get_evaluations_by_ids",
+        "app.routes.interview.get_report_evaluations",
         new_callable=mocker.AsyncMock,
         return_value=[_fake_judge_evaluation()],
     )
@@ -235,7 +237,7 @@ def test_read_report_returns_200_with_persisted_report(
         return_value=_fake_session(),
     )
     mocker.patch(
-        "app.routes.interview.get_evaluations_by_ids",
+        "app.routes.interview.get_report_evaluations",
         new_callable=mocker.AsyncMock,
         return_value=[_fake_judge_evaluation()],
     )
@@ -277,5 +279,276 @@ def test_read_report_returns_404_when_no_report_generated_yet(
     )
 
     response = authed_client.get("/api/v1/interview/10/report")
+
+    assert response.status_code == 404
+
+
+def test_get_interviews_returns_the_users_sessions(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    mocker.patch(
+        "app.routes.interview.list_interview_sessions",
+        new_callable=mocker.AsyncMock,
+        return_value=[_fake_session()],
+    )
+
+    response = authed_client.get("/api/v1/interview")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"][0]["id"] == 10
+    assert body["data"][0]["current_phase"] == "background_check"
+    assert "reply" not in body["data"][0]
+
+
+def test_get_interviews_returns_empty_list_when_user_has_none(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    mocker.patch(
+        "app.routes.interview.list_interview_sessions",
+        new_callable=mocker.AsyncMock,
+        return_value=[],
+    )
+
+    response = authed_client.get("/api/v1/interview")
+
+    assert response.status_code == 200
+    assert response.json()["data"] == []
+
+
+def test_get_interview_presets_filters_coding_when_not_expected(
+    authed_client: TestClient,
+) -> None:
+    response = authed_client.get(
+        "/api/v1/interview/presets", params={"coding_assessment_expected": False}
+    )
+
+    assert response.status_code == 200
+    keys = {p["key"] for p in response.json()["data"]}
+    assert "coding_only" not in keys
+    assert "full_loop_no_coding" in keys
+
+
+def test_start_interview_passes_preset_through(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    start = mocker.patch(
+        "app.routes.interview.start_interview",
+        new_callable=mocker.AsyncMock,
+        return_value=_fake_session(),
+    )
+
+    response = authed_client.post(
+        "/api/v1/interview/start",
+        json={
+            "candidate_profile_id": 1,
+            "job_description_id": 2,
+            "preset_key": "full_loop",
+            "duration_minutes": 30,
+        },
+    )
+
+    assert response.status_code == 201
+    assert start.call_args.kwargs["preset_key"] == "full_loop"
+    assert start.call_args.kwargs["duration_minutes"] == 30
+
+
+def test_start_interview_rejects_preset_without_duration(
+    authed_client: TestClient,
+) -> None:
+    response = authed_client.post(
+        "/api/v1/interview/start",
+        json={
+            "candidate_profile_id": 1,
+            "job_description_id": 2,
+            "preset_key": "full_loop",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_start_interview_returns_422_for_invalid_preset(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    from app.services.interview_service import InvalidInterviewPresetError
+
+    mocker.patch(
+        "app.routes.interview.start_interview",
+        new_callable=mocker.AsyncMock,
+        side_effect=InvalidInterviewPresetError("bad"),
+    )
+
+    response = authed_client.post(
+        "/api/v1/interview/start",
+        json={
+            "candidate_profile_id": 1,
+            "job_description_id": 2,
+            "preset_key": "full_loop",
+            "duration_minutes": 30,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def _fake_job(**overrides):
+    defaults = {"role": "Backend Engineer", "company_name": "Acme"}
+    defaults.update(overrides)
+    return type("FakeJob", (), defaults)()
+
+
+def test_get_reports_lists_finished_interviews(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    session = _fake_session(
+        status="completed",
+        created_at=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
+        ended_at=datetime(2026, 1, 1, 10, 30, tzinfo=UTC),
+        hint_counts={"technical_interview": 2},
+    )
+    mocker.patch(
+        "app.routes.interview.list_finished_interviews_with_reports",
+        new_callable=mocker.AsyncMock,
+        return_value=[(session, _fake_job(), _fake_report())],
+    )
+
+    response = authed_client.get("/api/v1/reports")
+
+    assert response.status_code == 200
+    item = response.json()["data"][0]
+    assert item["session_id"] == 10
+    assert item["duration_minutes"] == 30
+    assert item["overall_score"] == 77.5
+    assert item["hint_count"] == 2
+
+
+def test_get_reports_handles_an_interview_without_a_report(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    mocker.patch(
+        "app.routes.interview.list_finished_interviews_with_reports",
+        new_callable=mocker.AsyncMock,
+        return_value=[(_fake_session(status="completed"), _fake_job(), None)],
+    )
+
+    response = authed_client.get("/api/v1/reports")
+
+    item = response.json()["data"][0]
+    assert item["report_id"] is None
+    assert item["overall_score"] is None
+    assert item["duration_minutes"] is None
+
+
+def test_get_interview_returns_the_transcript_detail(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    session = _fake_session(
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        transcript=[
+            {"role": "user", "text": "synthetic opening prompt"},
+            {
+                "role": "model",
+                "text": "Welcome.",
+                "phase": "background_check",
+                "hint_level": 1,
+                "red_flag": True,
+                "anxiety_detected": True,
+            },
+            {"role": "user", "text": "Hello", "phase": "background_check"},
+        ],
+    )
+    mocker.patch(
+        "app.routes.interview.get_interview_with_job",
+        new_callable=mocker.AsyncMock,
+        return_value=(session, _fake_job()),
+    )
+
+    response = authed_client.get("/api/v1/interview/10")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["job_role"] == "Backend Engineer"
+    assert [entry["index"] for entry in data["transcript"]] == [1, 2]
+    assert data["transcript"][0]["hint_level"] == 1
+    assert data["transcript"][0]["red_flag"] is True
+    assert data["transcript"][1]["red_flag"] is False
+
+
+def test_get_interview_returns_404_for_unknown_session(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    mocker.patch(
+        "app.routes.interview.get_interview_with_job",
+        new_callable=mocker.AsyncMock,
+        side_effect=InterviewSessionNotFoundError("No interview session with id 4"),
+    )
+
+    response = authed_client.get("/api/v1/interview/4")
+
+    assert response.status_code == 404
+
+
+def _mock_pdf_dependencies(mocker: MockerFixture) -> None:
+    mocker.patch(
+        "app.routes.interview.get_interview_with_job",
+        new_callable=mocker.AsyncMock,
+        return_value=(
+            _fake_session(created_at=datetime(2026, 1, 1, tzinfo=UTC)),
+            _fake_job(),
+        ),
+    )
+    mocker.patch(
+        "app.routes.interview.get_latest_report",
+        new_callable=mocker.AsyncMock,
+        return_value=_fake_report(),
+    )
+    mocker.patch(
+        "app.routes.interview.get_report_evaluations",
+        new_callable=mocker.AsyncMock,
+        return_value=[_fake_judge_evaluation()],
+    )
+
+
+def test_download_report_pdf_returns_an_attachment(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    _mock_pdf_dependencies(mocker)
+    mocker.patch("app.routes.interview.build_report_pdf", return_value=b"%PDF-fake")
+
+    response = authed_client.post("/api/v1/interview/10/report/pdf")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert "interview-report-10.pdf" in response.headers["content-disposition"]
+    assert response.content == b"%PDF-fake"
+
+
+def test_download_report_pdf_returns_404_for_unknown_session(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    mocker.patch(
+        "app.routes.interview.get_interview_with_job",
+        new_callable=mocker.AsyncMock,
+        side_effect=InterviewSessionNotFoundError("No interview session with id 4"),
+    )
+
+    response = authed_client.post("/api/v1/interview/4/report/pdf")
+
+    assert response.status_code == 404
+
+
+def test_download_report_pdf_returns_404_when_no_report_exists(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    _mock_pdf_dependencies(mocker)
+    mocker.patch(
+        "app.routes.interview.get_latest_report",
+        new_callable=mocker.AsyncMock,
+        side_effect=InterviewReportNotFoundError("No report generated yet"),
+    )
+
+    response = authed_client.post("/api/v1/interview/10/report/pdf")
 
     assert response.status_code == 404

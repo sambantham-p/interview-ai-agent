@@ -1,3 +1,5 @@
+from google.genai import types
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants.gemini import GEMINI_RESUME_EXTRACTION_SEED
@@ -8,8 +10,14 @@ from app.core.gemini_client import (
     build_file_input,
     extract_structured,
 )
+from app.core.pdf_links import (
+    extract_pdf_link_targets,
+    find_github_profile_url,
+    is_github_profile_url,
+)
+from app.dto.resume import ResumeExtraction
 from app.models.candidate_profile import CandidateProfile
-from app.schemas.resume import ResumeExtraction
+from app.services.document_service import ensure_not_duplicate, hash_bytes
 
 
 class ResumeExtractionError(Exception):
@@ -56,25 +64,63 @@ async def parse_and_persist_resume(
     """Parse a resume PDF via Gemini structured-output extraction and
     persist it as a new CandidateProfile row.
 
-    Raises ResumeExtractionError if nothing usable was extracted - no row
-    is created, so the candidate can't proceed to an interview built on
+    Raises DuplicateDocumentError, before any Gemini call, if this exact
+    file was already uploaded by this user.
+
+    Raises ResumeExtractionError, with a reason the user can act on, if the
+    file isn't a resume or nothing usable was extracted - no row is created, so the candidate can't proceed to an interview built on
     an empty profile (mirrors parse_and_persist_job_description's
     required-fields check in app/services/jd_service.py).
     """
+    content_hash = hash_bytes(file_bytes)
+    await ensure_not_duplicate(
+        CandidateProfile,
+        user_id=user_id,
+        content_hash=content_hash,
+        db=db,
+        label="resume",
+    )
+
+    link_targets = extract_pdf_link_targets(file_bytes)
+    contents = build_file_input(
+        FileInputRequest(
+            file_bytes=file_bytes,
+            mime_type=PDF_MIME_TYPE,
+            resolution="high",
+        )
+    )
+    if link_targets:
+        links_block = "\n".join(f"- {url}" for url in link_targets)
+        contents.append(
+            types.Part.from_text(
+                text=(
+                    "Hyperlink targets embedded in this PDF (the visible link "
+                    "text on the page may differ from these). Use them as the "
+                    "authoritative URLs for the GitHub profile and each "
+                    f"project's repository link:\n{links_block}"
+                )
+            )
+        )
+
     extracted = await extract_structured(
         model=get_gemini_settings().gemini_resume_parsing_model,
-        contents=build_file_input(
-            FileInputRequest(
-                file_bytes=file_bytes,
-                mime_type=PDF_MIME_TYPE,
-                resolution="high",
-            )
-        ),
+        contents=contents,
         system_instruction=EXTRACTION_INSTRUCTIONS,
         text_format=ResumeExtraction,
         thinking_level="medium",
         seed=GEMINI_RESUME_EXTRACTION_SEED,
     )
+
+    if not extracted.looks_like_resume:
+        detail = (
+            f" It looks like {extracted.rejection_reason.rstrip('.')}."
+            if extracted.rejection_reason
+            else ""
+        )
+        raise ResumeExtractionError(
+            f"This doesn't look like a resume.{detail} Please upload your "
+            "own resume as a PDF."
+        )
 
     if not (
         extracted.education
@@ -83,10 +129,18 @@ async def parse_and_persist_resume(
         or extracted.skills
     ):
         raise ResumeExtractionError(
-            "Could not extract any education, experience, projects, or "
-            "skills from this resume - check the file isn't blank, "
-            "corrupted, or a scanned image with no selectable text"
+            "We couldn't find any education, work experience, projects or "
+            "skills in this file. It may be blank, a scanned image with no "
+            "selectable text, or not a resume. Please upload a text-based "
+            "PDF of your resume."
         )
+
+    # The PDF's own link targets are authoritative. The model's value is
+    # only used when the PDF has no GitHub link (a URL typed out as plain
+    # text), and only if it is a real profile URL, never a link label.
+    github_url = find_github_profile_url(link_targets)
+    if github_url is None and is_github_profile_url(extracted.github_url):
+        github_url = extracted.github_url
 
     profile = CandidateProfile(
         user_id=user_id,
@@ -94,9 +148,24 @@ async def parse_and_persist_resume(
         experience=[entry.model_dump() for entry in extracted.experience],
         projects=[entry.model_dump() for entry in extracted.projects],
         skills=extracted.skills,
-        github_url=extracted.github_url,
+        github_url=github_url,
+        content_hash=content_hash,
     )
     db.add(profile)
     await db.commit()
     await db.refresh(profile)
     return profile
+
+
+async def list_resumes(user_id: str, db: AsyncSession) -> list[CandidateProfile]:
+    """Every resume the given user has uploaded, newest first.
+
+    candidate_profiles is insert-only , so this is a plain history list,
+    not a "current resume" lookup.
+    """
+    result = await db.execute(
+        select(CandidateProfile)
+        .where(CandidateProfile.user_id == user_id)
+        .order_by(CandidateProfile.created_at.desc())
+    )
+    return list(result.scalars().all())

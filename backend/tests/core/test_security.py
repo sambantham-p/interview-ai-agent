@@ -189,3 +189,12 @@ def test_decode_password_reset_token_rejects_a_session_access_token(
 
     with pytest.raises(PasswordResetTokenInvalidError):
         decode_password_reset_token(session_token)
+
+
+def test_verify_password_rejects_a_hash_that_is_not_pbkdf2() -> None:
+    assert verify_password("anything", "bcrypt$10$salt$deadbeef") is False
+
+
+def test_verify_password_rejects_a_malformed_hash() -> None:
+    assert verify_password("anything", "not-a-hash") is False
+    assert verify_password("anything", "pbkdf2_sha256$notanumber$salt$abc") is False

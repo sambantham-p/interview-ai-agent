@@ -1,25 +1,41 @@
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any, cast
 
 import structlog
 from google.genai import types
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.constants.voice import TTS_TASK
+from app.constants.voice import (
+    GEMINI_TTS_TASK,
+    GEMINI_TTS_VOICE_NAME,
+    STT_TASK,
+    TTS_AUDIO_MEDIA_TYPE,
+    TTS_TASK,
+    WAV_AUDIO_MEDIA_TYPE,
+)
 from app.core.config import get_elevenlabs_settings, get_gateway_settings
 from app.core.db import get_session_factory
+from app.core.elevenlabs_client import (
+    ElevenLabsRequestError,
+    ElevenLabsTransientError,
+)
 from app.core.elevenlabs_client import synthesize_speech as _synthesize_speech
 from app.core.gemini_client import (
     ThinkingLevel,
     extract_structured,
+    generate_speech,
     get_gemini_client,
     run_tool_loop,
     thinking_config_for,
+    transcribe_audio,
 )
 from app.core.session_lookup import get_interview_session_or_404
 from app.models.llm_call import LLMCall
+from app.utils.audio import pcm_to_wav
 
 logger = structlog.get_logger(__name__)
 
@@ -286,6 +302,194 @@ async def stream_text(
         )
 
 
+async def _authorize_session(
+    session_id: int | None, user_id: str | None, db: AsyncSession
+) -> None:
+    """Confirms `user_id` owns `session_id` (a no-op for a standalone call
+    with no session), raising InterviewSessionNotFoundError otherwise.
+    """
+    if session_id is not None:
+        assert user_id is not None  # nosec B101
+        await get_interview_session_or_404(session_id, db, user_id=user_id)
+
+
+class _UsageRecorder:
+    """Callable that remembers the last usage metadata it was handed -
+    the on_usage hook the Gemini client functions report token counts to.
+    """
+
+    usage: types.GenerateContentResponseUsageMetadata | None = None
+
+    def __call__(
+        self, usage: types.GenerateContentResponseUsageMetadata | None
+    ) -> None:
+        self.usage = usage
+
+
+@dataclass(frozen=True)
+class SpeechAudio:
+    audio: bytes
+    media_type: str
+
+
+async def transcribe_speech(
+    *,
+    audio_bytes: bytes,
+    mime_type: str,
+    session_id: int | None,
+    user_id: str | None,
+    db: AsyncSession,
+    vocabulary: list[str] | None = None,
+) -> str:
+    """LLM Gateway entry point for speech-to-text: resolves the STT model
+    from the routing config, transcribes via Gemini, and logs the call
+    (latency, token usage) like every other Gateway call. Returns an
+    empty string when the audio held no intelligible speech.
+    """
+    await _authorize_session(session_id, user_id, db)
+
+    model = get_gateway_settings().model_for_task(STT_TASK)
+    recorder = _UsageRecorder()
+    start_time = time.monotonic()
+    extra = {"audio_bytes": len(audio_bytes), "mime_type": mime_type}
+
+    try:
+        transcript = await transcribe_audio(
+            model=model,
+            audio_bytes=audio_bytes,
+            mime_type=mime_type,
+            vocabulary=vocabulary,
+            on_usage=recorder,
+        )
+    except Exception as exc:
+        await _log_call(
+            task=STT_TASK,
+            model=model,
+            session_id=session_id,
+            prompt="<audio>",
+            response="",
+            latency_seconds=time.monotonic() - start_time,
+            usage=recorder.usage,
+            error=str(exc),
+            extra=extra,
+        )
+        raise
+
+    await _log_call(
+        task=STT_TASK,
+        model=model,
+        session_id=session_id,
+        prompt="<audio>",
+        response=transcript,
+        latency_seconds=time.monotonic() - start_time,
+        usage=recorder.usage,
+        error=None,
+        extra=extra,
+    )
+    return transcript
+
+
+async def _synthesize_speech_gemini(
+    *, text: str, session_id: int | None
+) -> SpeechAudio:
+    """Gemini TTS, logged under its own task so its usage stays separate
+    from ElevenLabs' character-count rows.
+    """
+    model = get_gateway_settings().model_for_task(GEMINI_TTS_TASK)
+    recorder = _UsageRecorder()
+    start_time = time.monotonic()
+    extra = {"character_count": len(text)}
+
+    try:
+        pcm = await generate_speech(
+            model=model,
+            text=text,
+            voice_name=GEMINI_TTS_VOICE_NAME,
+            on_usage=recorder,
+        )
+    except Exception as exc:
+        await _log_call(
+            task=GEMINI_TTS_TASK,
+            model=model,
+            session_id=session_id,
+            prompt=text,
+            response="",
+            latency_seconds=time.monotonic() - start_time,
+            usage=recorder.usage,
+            error=str(exc),
+            extra=extra,
+        )
+        raise
+
+    wav = pcm_to_wav(pcm)
+    await _log_call(
+        task=GEMINI_TTS_TASK,
+        model=model,
+        session_id=session_id,
+        prompt=text,
+        response=f"<audio: {len(wav)} bytes>",
+        latency_seconds=time.monotonic() - start_time,
+        usage=recorder.usage,
+        error=None,
+        extra=extra,
+    )
+    return SpeechAudio(audio=wav, media_type=WAV_AUDIO_MEDIA_TYPE)
+
+
+async def _voice_task_in_use(session_id: int, db: AsyncSession) -> str | None:
+    """The TTS task (ElevenLabs or Gemini) that most recently produced
+    audio for this session, or None if it hasn't produced any yet.
+    """
+    result = await db.execute(
+        select(LLMCall.task)
+        .where(
+            LLMCall.session_id == session_id,
+            LLMCall.task.in_([TTS_TASK, GEMINI_TTS_TASK]),
+            LLMCall.error.is_(None),
+        )
+        .order_by(LLMCall.id.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def synthesize_speech_with_fallback(
+    *,
+    text: str,
+    session_id: int | None,
+    user_id: str | None,
+    db: AsyncSession,
+) -> SpeechAudio:
+    """The interviewer's voice, kept to one voice per interview so the
+    candidate never hears it change mid-conversation.
+
+    An interview that is already speaking with ElevenLabs stays on it:
+    if ElevenLabs then fails, the error propagates and the client
+    continues in text. Gemini TTS is used only when ElevenLabs was
+    unavailable before the interview had produced any audio, and the
+    interview then stays on Gemini. A standalone call (no session) tries
+    ElevenLabs, then Gemini.
+    """
+    await _authorize_session(session_id, user_id, db)
+    voice_in_use = (
+        await _voice_task_in_use(session_id, db) if session_id is not None else None
+    )
+
+    if voice_in_use == GEMINI_TTS_TASK:
+        return await _synthesize_speech_gemini(text=text, session_id=session_id)
+
+    try:
+        audio = await synthesize_speech(
+            text=text, session_id=session_id, user_id=user_id, db=db
+        )
+    except (ElevenLabsTransientError, ElevenLabsRequestError):
+        if voice_in_use == TTS_TASK:
+            raise
+        logger.warning("llm_gateway.tts.elevenlabs_unavailable_using_gemini")
+        return await _synthesize_speech_gemini(text=text, session_id=session_id)
+    return SpeechAudio(audio=audio, media_type=TTS_AUDIO_MEDIA_TYPE)
+
+
 async def synthesize_speech(
     *,
     text: str,
@@ -306,9 +510,7 @@ async def synthesize_speech(
     session-scoped endpoint, so one candidate can't synthesize speech
     against another's interview.
     """
-    if session_id is not None:
-        assert user_id is not None  # nosec B101
-        await get_interview_session_or_404(session_id, db, user_id=user_id)
+    await _authorize_session(session_id, user_id, db)
 
     settings = get_elevenlabs_settings()
     model = settings.elevenlabs_model_id

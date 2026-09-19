@@ -1,5 +1,6 @@
 import { BrowserRouter, Link, Route, Routes } from 'react-router'
-import { AuthProvider, useAuth } from './lib/authContext'
+import { useAuth } from './lib/authContext'
+import { AuthProvider } from './lib/AuthProvider'
 import { Navigation } from './components/Navigation'
 import { GuestOnlyRoute } from './components/GuestOnlyRoute'
 import { RequireAuthRoute } from './components/RequireAuthRoute'
@@ -9,12 +10,15 @@ import { LoginPage } from './features/auth/LoginPage'
 import { SignupPage } from './features/auth/SignupPage'
 import { VerifyOtpPage } from './features/auth/VerifyOtpPage'
 import { ForgotPasswordPage } from './features/auth/ForgotPasswordPage'
+import { SettingsPage } from './features/settings/SettingsPage'
 import { ResetCodePage } from './features/auth/ResetCodePage'
 import { NewPasswordPage } from './features/auth/NewPasswordPage'
-import { ResumeUploadPage } from './features/resume-upload/ResumeUploadPage'
+import { DashboardPage } from './features/dashboard/DashboardPage'
+import { DocumentsPage } from './features/documents/DocumentsPage'
+import { SetupWizardPage } from './features/setup/SetupWizardPage'
 import { InterviewChatPage } from './features/interview-chat/InterviewChatPage'
-import { CodingChallengePage } from './features/coding-challenge/CodingChallengePage'
 import { ReportPage } from './features/report/ReportPage'
+import { ReportsPage } from './features/reports/ReportsPage'
 import { NotFoundPage } from './features/not-found/NotFoundPage'
 import { STARTUP_ROUTE } from './lib/routes'
 
@@ -64,10 +68,10 @@ function HomePage() {
           <div className="mt-9 flex flex-col sm:flex-row items-center gap-3">
             {isAuthenticated && user ? (
               <Link
-                to="/setup"
+                to="/dashboard"
                 className="px-7 py-3.5 rounded-[10px] bg-brand text-[#06251f] text-[15px] font-semibold shadow-lg shadow-teal-900/30 hover:bg-[#14c3a8] active:scale-[0.99] transition-all"
               >
-                Start an interview
+                Go to dashboard
               </Link>
             ) : (
               <>
@@ -149,25 +153,41 @@ export function App() {
           />
           <Route
             path="/reset-password/verify"
-            element={
-              <GuestOnlyRoute>
-                <ResetCodePage />
-              </GuestOnlyRoute>
-            }
+            element={<ResetCodePage />}
           />
           <Route
             path="/reset-password/new"
+            element={<NewPasswordPage />}
+          />
+          <Route
+            path="/dashboard"
             element={
-              <GuestOnlyRoute>
-                <NewPasswordPage />
-              </GuestOnlyRoute>
+              <RequireAuthRoute>
+                <DashboardPage />
+              </RequireAuthRoute>
+            }
+          />
+          <Route
+            path="/documents"
+            element={
+              <RequireAuthRoute>
+                <DocumentsPage />
+              </RequireAuthRoute>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <RequireAuthRoute>
+                <ReportsPage />
+              </RequireAuthRoute>
             }
           />
           <Route
             path="/setup"
             element={
               <RequireAuthRoute>
-                <ResumeUploadPage />
+                <SetupWizardPage />
               </RequireAuthRoute>
             }
           />
@@ -180,18 +200,18 @@ export function App() {
             }
           />
           <Route
-            path="/interview/:sessionId/coding"
-            element={
-              <RequireAuthRoute>
-                <CodingChallengePage />
-              </RequireAuthRoute>
-            }
-          />
-          <Route
             path="/interview/:sessionId/report"
             element={
               <RequireAuthRoute>
                 <ReportPage />
+              </RequireAuthRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <RequireAuthRoute>
+                <SettingsPage />
               </RequireAuthRoute>
             }
           />

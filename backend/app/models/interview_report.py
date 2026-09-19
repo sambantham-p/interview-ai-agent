@@ -17,7 +17,7 @@ class InterviewReport(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     session_id: Mapped[int] = mapped_column(
-        ForeignKey("interview_sessions.id"), index=True
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"), index=True
     )
     overall_score: Mapped[float] = mapped_column(Numeric(5, 2))
     recommendation_tier: Mapped[str] = mapped_column(String)

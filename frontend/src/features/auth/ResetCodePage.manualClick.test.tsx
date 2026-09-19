@@ -5,8 +5,8 @@ import { ResetCodePage } from './ResetCodePage'
 import { renderWithQueryClient } from '../../test/renderWithQueryClient'
 
 const { mockVerifyResetCode, mockForgotPassword } = vi.hoisted(() => ({
-  mockVerifyResetCode: vi.fn(),
-  mockForgotPassword: vi.fn(),
+  mockVerifyResetCode: vi.fn<(...args: unknown[]) => unknown>(),
+  mockForgotPassword: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../../lib/authContext', () => ({

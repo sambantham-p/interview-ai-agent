@@ -12,15 +12,15 @@ describe('OtpDigitBoxes', () => {
   })
 
   it('rejects non-numeric input', () => {
-    const onChange = vi.fn()
+    const onChange = vi.fn<(...args: unknown[]) => unknown>()
     render(<OtpDigitBoxes value="" onChange={onChange} />)
     fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: 'a' } })
     expect(onChange).not.toHaveBeenCalled()
   })
 
   it('calls onComplete once all 6 digits are entered', () => {
-    const onChange = vi.fn()
-    const onComplete = vi.fn()
+    const onChange = vi.fn<(...args: unknown[]) => unknown>()
+    const onComplete = vi.fn<(...args: unknown[]) => unknown>()
     const { rerender } = render(
       <OtpDigitBoxes value="12345" onChange={onChange} onComplete={onComplete} />
     )
@@ -32,14 +32,14 @@ describe('OtpDigitBoxes', () => {
   })
 
   it('moves focus to the next box after entering a digit', () => {
-    render(<OtpDigitBoxes value="" onChange={vi.fn()} />)
+    render(<OtpDigitBoxes value="" onChange={vi.fn<(...args: unknown[]) => unknown>()} />)
     const inputs = screen.getAllByRole('textbox')
     fireEvent.change(inputs[0], { target: { value: '5' } })
     expect(inputs[1]).toHaveFocus()
   })
 
   it('moves focus to the previous box on Backspace when the current box is empty', () => {
-    render(<OtpDigitBoxes value="1" onChange={vi.fn()} />)
+    render(<OtpDigitBoxes value="1" onChange={vi.fn<(...args: unknown[]) => unknown>()} />)
     const inputs = screen.getAllByRole('textbox')
     inputs[1].focus()
     fireEvent.keyDown(inputs[1], { key: 'Backspace' })
@@ -47,7 +47,7 @@ describe('OtpDigitBoxes', () => {
   })
 
   it('does nothing on Backspace at the first box', () => {
-    render(<OtpDigitBoxes value="" onChange={vi.fn()} />)
+    render(<OtpDigitBoxes value="" onChange={vi.fn<(...args: unknown[]) => unknown>()} />)
     const inputs = screen.getAllByRole('textbox')
     inputs[0].focus()
     expect(() => fireEvent.keyDown(inputs[0], { key: 'Backspace' })).not.toThrow()
@@ -55,8 +55,8 @@ describe('OtpDigitBoxes', () => {
   })
 
   it('accepts a pasted 6-digit code and calls onComplete', () => {
-    const onChange = vi.fn()
-    const onComplete = vi.fn()
+    const onChange = vi.fn<(...args: unknown[]) => unknown>()
+    const onComplete = vi.fn<(...args: unknown[]) => unknown>()
     render(<OtpDigitBoxes value="" onChange={onChange} onComplete={onComplete} />)
 
     const container = screen.getAllByRole('textbox')[0].parentElement as HTMLElement
@@ -69,7 +69,7 @@ describe('OtpDigitBoxes', () => {
   })
 
   it('accepts a pasted code without requiring an onComplete callback', () => {
-    const onChange = vi.fn()
+    const onChange = vi.fn<(...args: unknown[]) => unknown>()
     render(<OtpDigitBoxes value="" onChange={onChange} />)
 
     const container = screen.getAllByRole('textbox')[0].parentElement as HTMLElement
@@ -81,7 +81,7 @@ describe('OtpDigitBoxes', () => {
   })
 
   it('ignores a pasted value that is not exactly 6 digits', () => {
-    const onChange = vi.fn()
+    const onChange = vi.fn<(...args: unknown[]) => unknown>()
     render(<OtpDigitBoxes value="" onChange={onChange} />)
 
     const container = screen.getAllByRole('textbox')[0].parentElement as HTMLElement
@@ -93,8 +93,8 @@ describe('OtpDigitBoxes', () => {
   })
 
   it('counts down the resend timer and disables resend until it reaches zero', () => {
-    const onResend = vi.fn()
-    render(<OtpDigitBoxes value="" onChange={vi.fn()} onResend={onResend} />)
+    const onResend = vi.fn<(...args: unknown[]) => unknown>()
+    render(<OtpDigitBoxes value="" onChange={vi.fn<(...args: unknown[]) => unknown>()} onResend={onResend} />)
 
     expect(screen.getByText(/Resend code in 00:45/)).toBeInTheDocument()
 
@@ -109,7 +109,7 @@ describe('OtpDigitBoxes', () => {
   })
 
   it('does nothing when resend is clicked with no onResend callback provided', () => {
-    render(<OtpDigitBoxes value="" onChange={vi.fn()} />)
+    render(<OtpDigitBoxes value="" onChange={vi.fn<(...args: unknown[]) => unknown>()} />)
     act(() => {
       vi.advanceTimersByTime(45_000)
     })
@@ -117,7 +117,7 @@ describe('OtpDigitBoxes', () => {
   })
 
   it('shows a sending state while isResending is true', () => {
-    render(<OtpDigitBoxes value="" onChange={vi.fn()} onResend={vi.fn()} isResending />)
+    render(<OtpDigitBoxes value="" onChange={vi.fn<(...args: unknown[]) => unknown>()} onResend={vi.fn<(...args: unknown[]) => unknown>()} isResending />)
     act(() => {
       vi.advanceTimersByTime(45_000)
     })
@@ -126,11 +126,11 @@ describe('OtpDigitBoxes', () => {
   })
 
   it('renders a change-email link only when onChangeEmail is provided', () => {
-    const onChangeEmail = vi.fn()
-    const { rerender } = render(<OtpDigitBoxes value="" onChange={vi.fn()} />)
+    const onChangeEmail = vi.fn<(...args: unknown[]) => unknown>()
+    const { rerender } = render(<OtpDigitBoxes value="" onChange={vi.fn<(...args: unknown[]) => unknown>()} />)
     expect(screen.queryByText('Change email address')).not.toBeInTheDocument()
 
-    rerender(<OtpDigitBoxes value="" onChange={vi.fn()} onChangeEmail={onChangeEmail} />)
+    rerender(<OtpDigitBoxes value="" onChange={vi.fn<(...args: unknown[]) => unknown>()} onChangeEmail={onChangeEmail} />)
     fireEvent.click(screen.getByText('Change email address'))
     expect(onChangeEmail).toHaveBeenCalled()
   })

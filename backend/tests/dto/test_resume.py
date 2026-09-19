@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
+from app.dto.resume import ResumeExtraction, ResumeUploadResponse
 from app.models.candidate_profile import CandidateProfile
-from app.schemas.resume import ResumeExtraction, ResumeUploadResponse
 
 
 def test_resume_upload_response_validates_from_a_candidate_profile_orm_object() -> None:
@@ -51,7 +51,7 @@ def test_resume_extraction_schema_tells_gemini_the_date_format() -> None:
     schema = ResumeExtraction.model_json_schema()
     education_defs = schema["$defs"]["EducationEntry"]["properties"]
 
-    assert "YYYY-MM" in education_defs["start_date"]["description"]
+    assert "exactly as written" in education_defs["start_date"]["description"]
 
 
 def test_resume_extraction_schema_tells_gemini_not_to_split_one_date_range() -> None:
@@ -68,3 +68,63 @@ def test_resume_extraction_schema_tells_gemini_not_to_split_one_date_range() -> 
 
     assert "SAME" in education_description and "never split" in education_description
     assert "SAME" in experience_description and "never split" in experience_description
+
+
+def test_date_fields_ask_for_the_resume_wording_not_a_reformat() -> None:
+    from app.dto.resume import DATE_FIELD_DESCRIPTION
+
+    assert "exactly as written" in DATE_FIELD_DESCRIPTION
+    assert "Sept 2025" in DATE_FIELD_DESCRIPTION
+    assert "YYYY-MM" not in DATE_FIELD_DESCRIPTION
+
+
+def _response(**overrides):
+    from datetime import UTC, datetime
+
+    from app.dto.resume import ResumeUploadResponse
+
+    data = {
+        "id": 1,
+        "education": [],
+        "experience": [],
+        "projects": [],
+        "skills": [],
+        "github_url": None,
+        "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+    }
+    data.update(overrides)
+    return ResumeUploadResponse(**data)
+
+
+def test_missing_sections_lists_every_absent_section() -> None:
+    response = _response(skills=["Python"])
+
+    assert response.missing_sections == [
+        "Education",
+        "Work experience",
+        "Projects",
+        "GitHub profile link",
+    ]
+
+
+def test_missing_sections_is_empty_for_a_complete_resume() -> None:
+    response = _response(
+        education=[{"institution": "MIT", "degree": "BS"}],
+        experience=[{"company": "Acme", "role": "Eng"}],
+        projects=[{"name": "W"}],
+        skills=["Python"],
+        github_url="https://github.com/sam",
+    )
+
+    assert response.missing_sections == []
+    assert response.model_dump()["missing_sections"] == []
+
+
+def test_resume_extraction_defaults_to_looking_like_a_resume() -> None:
+    from app.dto.resume import ResumeExtraction
+
+    extraction = ResumeExtraction(
+        education=[], experience=[], projects=[], skills=["x"], github_url=None
+    )
+
+    assert extraction.looks_like_resume is True

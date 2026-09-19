@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.judge import JudgeEvidenceItem, JudgeOutput
+from app.dto.judge import JudgeEvidenceItem, JudgeOutput
 
 
 def test_judge_output_accepts_a_valid_score_and_evidence() -> None:

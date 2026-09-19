@@ -14,9 +14,11 @@ it.
 | ORM / driver | SQLAlchemy (async) + `asyncpg` |
 | Migrations | Alembic |
 | Vector search (RAG — technical-question bank only, not GitHub content) | `pgvector` on Postgres |
-| LLM provider | Google Gemini (`google-genai` — chat, native audio STT) |
-| Voice TTS | ElevenLabs |
-| Resume parsing | Gemini native PDF input (`google-genai`), not `pypdf` |
+| LLM provider | Google Gemini (`google-genai` — chat and structured output) |
+| Voice STT | Gemini's dedicated `gemini-3.5-transcribe` (Interactions API, the JD's tech stack as custom vocabulary) |
+| Voice TTS | ElevenLabs, with Gemini TTS (`gemini-3.1-flash-tts-preview`) only when ElevenLabs is already down before an interview has produced any audio - one voice per interview, never switching mid-interview |
+| Report PDF | `reportlab` |
+| Resume parsing | Gemini native PDF input (`google-genai`) for content; `pypdf` only to read hyperlink targets (the stored `github_url` comes from the PDF's links, not the LLM) |
 | GitHub grounding (Interview Phase 2) | live tool-calling — Gemini native function calling over an `httpx` GitHub REST client, no embeddings/vector index, scoped to the candidate's own account only |
 | Company research (Phases 6/7) | real MCP client (`mcp` SDK) against Parallel's public Search MCP server — no API key |
 | Technical-question RAG embeddings (Phases 3/4/5) | local `nomic-embed-text-v1.5` via `fastembed` (ONNX, no `torch`) |
@@ -60,11 +62,19 @@ backend/
 │   │                               #   judge_evaluation, interview_report
 │   ├── schemas/                   # request/response Pydantic models — response.py, resume.py, jd.py,
 │   │                               #   interview.py, judge.py, voice.py
-│   ├── routes/                    # health.py, resume.py, jd.py, interview.py (start/turn/report), voice.py
+│   ├── routes/                    # health.py, resume.py (upload + list + delete), jd.py (submit + list + delete),
+│   │                               #   interview.py (list/presets/start/detail/turn/report/report PDF, GET /reports), voice.py (tts + stt)
 │   ├── services/                  # business logic — resume_service, jd_service, interview_service +
 │   │                               #   interview_prompts (the 7-phase Interviewer agent), judge_service +
-│   │                               #   judge_prompts (the 5 post-hoc Judges), question_bank_service (RAG)
-│   └── utils/                     # generic, framework-agnostic helpers
+│   │                               #   judge_prompts (the 5 post-hoc Judges), report_summary (verdict headline,
+│   │                               #   strength/focus lists) + report_pdf (the downloadable PDF),
+│   │                               #   question_bank_service (RAG),
+│   │                               #   (interview_service.start_interview commits the session before any LLM call so Gateway logging's FK holds)
+│   │                               #   interview_presets (preset/duration → phases + per-phase time budget),
+│   │                               #   (resume_service/jd_service reject junk with a specific user-facing reason;
+│   │                               #   the resume/JD response DTOs add computed missing_sections / missing_details),
+│   │                               #   document_service (duplicate detection + delete for resumes/JDs)
+│   └── utils/                     # generic, framework-agnostic helpers (audio.py: PCM to WAV for Gemini TTS)
 ├── scripts/
 │   └── seed_technical_questions.py   # one-off seed for the RAG question bank (not an Alembic migration)
 ├── migrations/                      # Alembic migrations — env.py reads DATABASE_URL via app.core.config
@@ -351,8 +361,9 @@ real project number because it never runs the tests that exercise
 whole-project number.
 
 Coverage is enforced, not just reported: `pyproject.toml` sets
-`--cov-fail-under=85` and `branch = true`, so `pytest` **fails the run** if
-statement+branch coverage on `app/` drops below 85% — branch coverage
+`--cov-fail-under=98` and `branch = true`, so `pytest` **fails the run** if
+statement+branch coverage on `app/` drops below 98% (it was 85% until the
+suite held 98%+ on its own; today it is 602 tests at 100%) — branch coverage
 specifically catches an `if/else` where only one side was ever tested. If
 you add code that drops coverage below that, the fix is to add tests, not
 to lower the threshold.

@@ -1,3 +1,4 @@
+import base64
 import time
 from collections.abc import Awaitable, Callable
 from functools import lru_cache
@@ -64,6 +65,27 @@ def _is_transient(exc: Exception) -> bool:
         isinstance(exc, ClientError) and exc.code == GEMINI_RATE_LIMIT_STATUS_CODE
     )
     return isinstance(exc, httpx.HTTPError | ServerError) or is_rate_limited
+
+
+def _is_transient_interactions_error(exc: Exception) -> bool:
+    """A retryable failure from the Interactions API - network error, 5xx,
+    or a 429 rate limit. The SDK's error types for this API live in a
+    private module and can't be imported safely, so this reads what they
+    expose publicly instead: an HTTP `status_code` for a server response,
+    or an `APIConnectionError` (which also covers `APITimeoutError`) in
+    the class hierarchy when no response arrived at all.
+    """
+    status = getattr(exc, "status_code", None)
+    is_retryable_status = isinstance(status, int) and (
+        status == GEMINI_RATE_LIMIT_STATUS_CODE
+        or status >= httpx.codes.INTERNAL_SERVER_ERROR
+    )
+    is_connection_error = any(
+        cls.__name__ == "APIConnectionError" for cls in type(exc).__mro__
+    )
+    return (
+        isinstance(exc, httpx.HTTPError) or is_retryable_status or is_connection_error
+    )
 
 
 def thinking_config_for(thinking_level: ThinkingLevel) -> types.ThinkingConfig:
@@ -280,6 +302,141 @@ async def run_tool_loop(
         log.warning("gemini.tool_loop.max_rounds_reached", max_rounds=max_rounds)
 
     return history
+
+
+async def _generate_plain(
+    *,
+    model: str,
+    contents: types.ContentListUnion,
+    config: types.GenerateContentConfig,
+    log_event: str,
+    on_usage: Callable[[types.GenerateContentResponseUsageMetadata | None], None]
+    | None,
+) -> types.GenerateContentResponse:
+    """generate_content for calls that don't need structured output:
+    timing/log lines, usage reporting, and Gemini-side failures mapped to
+    GeminiTransientError, the same way extract_structured() does.
+    """
+    client = get_gemini_client()
+    log = logger.bind(model=model)
+    start_time = time.monotonic()
+    log.info(f"{log_event}.start")
+    try:
+        response = await client.aio.models.generate_content(
+            model=model, contents=contents, config=config
+        )
+    except Exception as exc:
+        log.exception(
+            f"{log_event}.error", duration_seconds=time.monotonic() - start_time
+        )
+        if on_usage is not None:
+            on_usage(None)
+        if _is_transient(exc):
+            raise GeminiTransientError(str(exc)) from exc
+        raise
+    if on_usage is not None:
+        on_usage(response.usage_metadata)
+    log.info(f"{log_event}.success", duration_seconds=time.monotonic() - start_time)
+    return response
+
+
+async def transcribe_audio(
+    *,
+    model: str,
+    audio_bytes: bytes,
+    mime_type: str,
+    vocabulary: list[str] | None = None,
+    on_usage: Callable[[types.GenerateContentResponseUsageMetadata | None], None]
+    | None = None,
+) -> str:
+    """Speech-to-text with Gemini's dedicated transcription model, which is
+    served only through the Interactions API. `vocabulary` biases
+    recognition toward terms the audio is likely to contain (technical
+    names, in an interview). Returns the transcript, or an empty string
+    when the audio held no intelligible speech.
+    """
+    client = get_gemini_client()
+    log = logger.bind(model=model)
+    start_time = time.monotonic()
+    log.info("gemini.transcribe_audio.start")
+
+    generation_config: dict[str, Any] = {}
+    if vocabulary:
+        generation_config["transcription_config"] = {"custom_vocabulary": vocabulary}
+
+    try:
+        interaction = await client.aio.interactions.create(
+            model=model,
+            input=[
+                {
+                    "type": "audio",
+                    "data": base64.b64encode(audio_bytes).decode(),
+                    "mime_type": mime_type,
+                }
+            ],
+            generation_config=generation_config or None,
+        )
+    except Exception as exc:
+        log.exception(
+            "gemini.transcribe_audio.error",
+            duration_seconds=time.monotonic() - start_time,
+        )
+        if on_usage is not None:
+            on_usage(None)
+        if _is_transient_interactions_error(exc):
+            raise GeminiTransientError(str(exc)) from exc
+        raise
+
+    usage = interaction.usage
+    if on_usage is not None and usage is not None:
+        on_usage(
+            types.GenerateContentResponseUsageMetadata(
+                prompt_token_count=usage.total_input_tokens,
+                candidates_token_count=usage.total_output_tokens,
+                total_token_count=usage.total_tokens,
+            )
+        )
+    log.info(
+        "gemini.transcribe_audio.success",
+        duration_seconds=time.monotonic() - start_time,
+    )
+    return (interaction.output_text or "").strip()
+
+
+async def generate_speech(
+    *,
+    model: str,
+    text: str,
+    voice_name: str,
+    on_usage: Callable[[types.GenerateContentResponseUsageMetadata | None], None]
+    | None = None,
+) -> bytes:
+    """Text-to-speech via a Gemini TTS model. Returns raw 16-bit mono PCM
+    audio (the model's native output); the caller wraps it in a container.
+    Raises GeminiResponseParseError if the response carries no audio.
+    """
+    response = await _generate_plain(
+        model=model,
+        contents=text,
+        config=types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name=voice_name
+                    )
+                )
+            ),
+        ),
+        log_event="gemini.generate_speech",
+        on_usage=on_usage,
+    )
+    candidates = response.candidates or []
+    parts = candidates[0].content.parts if candidates and candidates[0].content else []
+    for part in parts or []:
+        if part.inline_data and part.inline_data.data:
+            return part.inline_data.data
+    raise GeminiResponseParseError("Gemini TTS response contained no audio")
 
 
 class FileInputRequest(BaseModel):

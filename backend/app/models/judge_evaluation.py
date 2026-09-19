@@ -17,7 +17,7 @@ class JudgeEvaluation(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     session_id: Mapped[int] = mapped_column(
-        ForeignKey("interview_sessions.id"), index=True
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"), index=True
     )
     judge_name: Mapped[str] = mapped_column(String, index=True)
     dimension: Mapped[str] = mapped_column(String)

@@ -6,7 +6,7 @@ import { NotFoundPage } from './NotFoundPage'
 import { STARTUP_ROUTE } from '../../lib/routes'
 
 const { mockUseAuth } = vi.hoisted(() => ({
-  mockUseAuth: vi.fn(),
+  mockUseAuth: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../../lib/authContext', () => ({

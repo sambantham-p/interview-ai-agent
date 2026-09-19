@@ -5,8 +5,8 @@ import { SignupPage } from './SignupPage'
 import { renderWithQueryClient } from '../../test/renderWithQueryClient'
 
 const { mockRegisterWithEmail, mockLoginWithGoogle } = vi.hoisted(() => ({
-  mockRegisterWithEmail: vi.fn(),
-  mockLoginWithGoogle: vi.fn(),
+  mockRegisterWithEmail: vi.fn<(...args: unknown[]) => unknown>(),
+  mockLoginWithGoogle: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../../lib/authContext', () => ({
@@ -66,12 +66,11 @@ describe('SignupPage', () => {
     expect(screen.getByRole('button', { name: 'Create account' })).not.toBeDisabled()
   })
 
-  it('registers and navigates to /verify-email with the dev OTP in router state', async () => {
+  it('registers and navigates to /verify-email', async () => {
     mockRegisterWithEmail.mockResolvedValueOnce({
       email: 'alex@prepwise.ai',
       otp_sent: true,
       message: 'sent',
-      dev_otp: '123456',
     })
     renderSignup()
     fillValidForm()
@@ -83,19 +82,6 @@ describe('SignupPage', () => {
       'alex@prepwise.ai',
       'Prepwise#2026'
     )
-  })
-
-  it('registers and navigates with a null devOtp when the backend omits it', async () => {
-    mockRegisterWithEmail.mockResolvedValueOnce({
-      email: 'alex@prepwise.ai',
-      otp_sent: true,
-      message: 'sent',
-    })
-    renderSignup()
-    fillValidForm()
-    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
-
-    await waitFor(() => expect(screen.getByText('Verify Email Page')).toBeInTheDocument())
   })
 
   it('shows the error message from a failed registration', async () => {

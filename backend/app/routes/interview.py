@@ -1,24 +1,32 @@
 import httpx
 from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
 from app.core.responses import error_response, success_response
 from app.core.session_lookup import get_interview_session_or_404
-from app.models.interview_report import InterviewReport
-from app.models.interview_session import InterviewSession
-from app.models.user import User
-from app.routes.auth import get_current_user
-from app.schemas.interview import (
+from app.dto.interview import (
+    InterviewPresetResponse,
+    InterviewSessionDetail,
+    InterviewSessionSummary,
     InterviewStartRequest,
     InterviewTurnRequest,
     InterviewTurnResponse,
+    build_session_detail,
+    build_turn_response,
 )
-from app.schemas.judge import InterviewReportResponse, JudgeEvaluationResponse
+from app.dto.judge import InterviewReportResponse, ReportListItem
+from app.models.interview_session import InterviewSession
+from app.models.user import User
+from app.routes.auth import get_current_user
 from app.services.interview_service import (
     InterviewSessionNotActiveError,
     InterviewSessionNotFoundError,
+    InvalidInterviewPresetError,
+    get_interview_with_job,
+    list_interview_presets,
+    list_interview_sessions,
     start_interview,
     submit_turn,
 )
@@ -26,23 +34,55 @@ from app.services.judge_service import (
     InterviewReportNotFoundError,
     InterviewSessionNotReadyForReportError,
     generate_report,
-    get_evaluations_by_ids,
     get_latest_report,
+    get_report_evaluations,
+    list_finished_interviews_with_reports,
 )
+from app.services.report_pdf import build_report_pdf
 
 router = APIRouter(tags=["Interview"])
 
+PDF_MEDIA_TYPE = "application/pdf"
 
-def _turn_response(session: InterviewSession) -> InterviewTurnResponse:
-    return InterviewTurnResponse(
-        id=session.id,
-        current_phase=session.current_phase,
-        status=session.status,
-        red_flag_count=session.red_flag_count,
-        hint_counts=session.hint_counts,
-        end_reason=session.end_reason,
-        reply=session.transcript[-1]["text"],
-    )
+
+@router.get("/reports", response_model=list[ReportListItem])
+async def get_reports(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> JSONResponse:
+    """The reports collection: every finished interview of the current
+    user, newest first, with its score and verdict once a report exists.
+    """
+    rows = await list_finished_interviews_with_reports(user_id=user.id, db=db)
+    data = [ReportListItem.from_parts(*row) for row in rows]
+    return success_response(data=data, status_code=httpx.codes.OK)
+
+
+@router.get("/interview", response_model=list[InterviewSessionSummary])
+async def get_interviews(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> JSONResponse:
+    """List the current user's interview sessions, newest first and
+    the dashboard's recent-interviews list and the documents page.
+    """
+    sessions = await list_interview_sessions(user.id, db)
+    data = [InterviewSessionSummary.model_validate(s) for s in sessions]
+    return success_response(data=data, status_code=httpx.codes.OK)
+
+
+@router.get("/interview/presets", response_model=list[InterviewPresetResponse])
+async def get_interview_presets(
+    coding_assessment_expected: bool | None = None,
+    user: User = Depends(get_current_user),
+) -> JSONResponse:
+    """The interview presets a candidate can pick from. Pass
+    coding_assessment_expected=false to leave out presets that need a
+    coding round.
+    """
+    presets = list_interview_presets(coding_expected=coding_assessment_expected)
+    data = [InterviewPresetResponse(**p) for p in presets]
+    return success_response(data=data, status_code=httpx.codes.OK)
 
 
 @router.post("/interview/start", response_model=InterviewTurnResponse)
@@ -60,12 +100,41 @@ async def start(
             job_description_id=payload.job_description_id,
             user_id=user.id,
             db=db,
+            preset_key=payload.preset_key,
+            duration_minutes=payload.duration_minutes,
+        )
+    except InterviewSessionNotFoundError as exc:
+        return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)
+    except InvalidInterviewPresetError as exc:
+        return error_response(
+            message=str(exc), status_code=httpx.codes.UNPROCESSABLE_ENTITY
+        )
+
+    return success_response(
+        data=build_turn_response(session), status_code=httpx.codes.CREATED
+    )
+
+
+@router.get("/interview/{session_id}", response_model=InterviewSessionDetail)
+async def get_interview(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> JSONResponse:
+    """One interview session with its transcript and timing - what the
+    live interview screen loads to resume, and the report screen to show
+    the phase-by-phase review.
+    """
+    try:
+        session, job_description = await get_interview_with_job(
+            session_id=session_id, user_id=user.id, db=db
         )
     except InterviewSessionNotFoundError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)
 
     return success_response(
-        data=_turn_response(session), status_code=httpx.codes.CREATED
+        data=build_session_detail(session, job_description),
+        status_code=httpx.codes.OK,
     )
 
 
@@ -86,25 +155,8 @@ async def turn(
     except InterviewSessionNotActiveError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.CONFLICT)
 
-    return success_response(data=_turn_response(session), status_code=httpx.codes.OK)
-
-
-async def _report_response(
-    report: InterviewReport, session: InterviewSession, db: AsyncSession
-) -> InterviewReportResponse:
-    evaluations = await get_evaluations_by_ids(report.judge_evaluation_ids, db)
-    return InterviewReportResponse(
-        id=report.id,
-        session_id=report.session_id,
-        overall_score=float(report.overall_score),
-        recommendation_tier=report.recommendation_tier,
-        weights_used=report.weights_used,
-        judge_evaluations=[
-            JudgeEvaluationResponse.model_validate(e) for e in evaluations
-        ],
-        hint_counts=session.hint_counts,
-        red_flag_count=session.red_flag_count,
-        end_reason=session.end_reason,
+    return success_response(
+        data=build_turn_response(session), status_code=httpx.codes.OK
     )
 
 
@@ -128,9 +180,23 @@ async def create_report(
     except InterviewSessionNotReadyForReportError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.CONFLICT)
 
-    return success_response(
-        data=await _report_response(report, session, db),
-        status_code=httpx.codes.CREATED,
+    evaluations = await get_report_evaluations(report, db)
+    data = InterviewReportResponse.from_report_and_evaluations(
+        report, evaluations, session
+    )
+    return success_response(data=data, status_code=httpx.codes.CREATED)
+
+
+async def _latest_report_response(
+    session: InterviewSession, db: AsyncSession
+) -> InterviewReportResponse:
+    """The session's most recent report as its API DTO. Raises
+    InterviewReportNotFoundError if none has been generated.
+    """
+    report = await get_latest_report(session=session, db=db)
+    evaluations = await get_report_evaluations(report, db)
+    return InterviewReportResponse.from_report_and_evaluations(
+        report, evaluations, session
     )
 
 
@@ -149,11 +215,37 @@ async def read_report(
         return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)
 
     try:
-        report = await get_latest_report(session=session, db=db)
+        data = await _latest_report_response(session, db)
     except InterviewReportNotFoundError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)
 
-    return success_response(
-        data=await _report_response(report, session, db),
-        status_code=httpx.codes.OK,
+    return success_response(data=data, status_code=httpx.codes.OK)
+
+
+@router.post("/interview/{session_id}/report/pdf")
+async def download_report_pdf(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """Render the session's latest report as a PDF download, without
+    re-running the Judges.
+    """
+    try:
+        session, job_description = await get_interview_with_job(
+            session_id=session_id, user_id=user.id, db=db
+        )
+        report = await _latest_report_response(session, db)
+    except InterviewSessionNotFoundError as exc:
+        return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)
+    except InterviewReportNotFoundError as exc:
+        return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)
+
+    pdf = build_report_pdf(report, build_session_detail(session, job_description))
+    return Response(
+        content=pdf,
+        media_type=PDF_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": f'attachment; filename="interview-report-{session_id}.pdf"'
+        },
     )

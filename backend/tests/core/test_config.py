@@ -8,7 +8,9 @@ from app.core.config import (
     GeminiSettings,
     get_database_settings,
     get_elevenlabs_settings,
+    get_gateway_settings,
     get_gemini_settings,
+    get_smtp_settings,
 )
 
 
@@ -54,6 +56,8 @@ def test_gateway_settings_routes_interviewer_task() -> None:
     settings = GatewaySettings(
         gemini_interviewer_model="gemini-3.8-flash",
         gemini_judge_model="gemini-3.1-pro",
+        gemini_stt_model="gemini-stt",
+        gemini_tts_model="gemini-tts",
     )
 
     assert settings.model_for_task("interviewer") == "gemini-3.8-flash"
@@ -63,6 +67,8 @@ def test_gateway_settings_routes_all_judge_tasks_to_judge_model() -> None:
     settings = GatewaySettings(
         gemini_interviewer_model="gemini-3.8-flash",
         gemini_judge_model="gemini-3.1-pro",
+        gemini_stt_model="gemini-stt",
+        gemini_tts_model="gemini-tts",
     )
 
     assert settings.model_for_task(LLM_TASK_JUDGE_PROJECT_DEPTH) == "gemini-3.1-pro"
@@ -73,7 +79,17 @@ def test_gateway_settings_raises_key_error_for_unknown_task() -> None:
     settings = GatewaySettings(
         gemini_interviewer_model="gemini-3.8-flash",
         gemini_judge_model="gemini-3.1-pro",
+        gemini_stt_model="gemini-stt",
+        gemini_tts_model="gemini-tts",
     )
 
     with pytest.raises(KeyError):
         settings.model_for_task("unknown_task")
+
+
+def test_get_gateway_settings_is_cached() -> None:
+    assert get_gateway_settings() is get_gateway_settings()
+
+
+def test_get_smtp_settings_is_cached() -> None:
+    assert get_smtp_settings() is get_smtp_settings()

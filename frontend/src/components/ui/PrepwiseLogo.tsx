@@ -1,4 +1,3 @@
-
 interface PrepwiseLogoProps {
   variant?: 'light' | 'dark'
   size?: 'sm' | 'md' | 'lg'
@@ -13,24 +12,24 @@ export function PrepwiseLogo({
   className = '',
 }: PrepwiseLogoProps) {
   const markDimensions = {
-    sm: 'w-7 h-7',
-    md: 'w-9 h-9',
-    lg: 'w-12 h-12',
+    sm: 'w-9 h-8',
+    md: 'w-11 h-10',
+    lg: 'w-13 h-12',
   }[size]
 
   const wordmarkSize = {
-    sm: 'text-lg',
-    md: 'text-[22px]',
-    lg: 'text-2xl',
+    sm: 'text-[22px]',
+    md: 'text-[26px]',
+    lg: 'text-[32px]',
   }[size]
 
   const textColor = variant === 'light' ? 'text-ink' : 'text-white'
 
   return (
-    <div className={`inline-flex items-center gap-2.5 select-none ${className}`}>
+    <div className={`inline-flex items-center gap-3 select-none ${className}`}>
       {/* Brand mark from Figma: message-circle-check */}
       <div
-        className={`${markDimensions} rounded-[10px] bg-brand flex items-center justify-center p-1.5 shadow-sm`}
+        className={`${markDimensions} rounded-xl bg-linear-to-br from-[#2bc9b4] to-[#0f8f80] flex items-center justify-center p-1.5 shadow-[0_6px_16px_-6px_rgba(24,169,153,0.75)]`}
         aria-hidden="true"
       >
         <svg
@@ -50,9 +49,13 @@ export function PrepwiseLogo({
 
       {showWordmark && (
         <span
-          className={`font-bold tracking-tight ${wordmarkSize} ${textColor}`}
+          aria-label="Prepwise"
+          className={`font-display font-extrabold leading-none tracking-[-0.045em] ${wordmarkSize} ${textColor}`}
         >
-          Prepwise
+          Prep
+          <span className="bg-linear-to-r from-brand to-[#5eead4] bg-clip-text text-transparent">
+            wise
+          </span>
         </span>
       )}
     </div>

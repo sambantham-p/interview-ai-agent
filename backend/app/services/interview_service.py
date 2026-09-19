@@ -1,9 +1,11 @@
+import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 from google.genai import types
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants.github import (
@@ -11,9 +13,14 @@ from app.constants.github import (
     GITHUB_TOOL_LOOP_MAX_ROUNDS,
 )
 from app.constants.interview import (
+    CODING_PHASE,
     DEFAULT_RED_FLAG_THRESHOLD,
     INTERVIEW_PHASES,
+    INTERVIEW_PRESETS,
     LLM_TASK_INTERVIEWER,
+    SESSION_STATUS_COMPLETED,
+    SESSION_STATUS_ENDED_EARLY,
+    SESSION_STATUS_IN_PROGRESS,
 )
 from app.constants.question_bank import QUESTION_BANK_PHASES, QUESTIONS_PER_PHASE
 from app.constants.search import COMPANY_RESEARCH_PHASES
@@ -25,10 +32,15 @@ from app.core.session_lookup import (
     InterviewSessionNotFoundError,
     get_interview_session_or_404,
 )
+from app.dto.interview import InterviewTurnOutput
 from app.models.candidate_profile import CandidateProfile
 from app.models.interview_session import InterviewSession
 from app.models.job_description import JobDescription
-from app.schemas.interview import InterviewTurnOutput
+from app.services.interview_presets import (
+    InvalidInterviewPresetError,
+    build_session_plan,
+    session_phase_time_status,
+)
 from app.services.interview_prompts import (
     ABUSIVE_LANGUAGE_ENDED_MESSAGE,
     INTERVIEW_ENDED_EARLY_MESSAGE,
@@ -39,9 +51,16 @@ from app.services.question_bank_service import prefetch_question_pool
 
 logger = structlog.get_logger(__name__)
 
+OPENING_PROMPT_TEXT = (
+    "Begin the interview - greet the candidate and start the first phase."
+)
+
 __all__ = [
     "InterviewSessionNotActiveError",
     "InterviewSessionNotFoundError",
+    "InvalidInterviewPresetError",
+    "get_interview_with_job",
+    "list_interview_presets",
     "start_interview",
     "submit_turn",
 ]
@@ -60,6 +79,36 @@ class InterviewSessionNotActiveError(Exception):
     """Raised when a turn is submitted to a session that already
     completed or ended early - no further turns are accepted.
     """
+
+
+def list_interview_presets(*, coding_expected: bool | None = None) -> list[dict]:
+    """The preset catalog; with coding_expected=False, presets that
+    include the coding phase are left out rather than offered and later
+    silently trimmed.
+    """
+    presets = []
+    for key, preset in INTERVIEW_PRESETS.items():
+        includes_coding = CODING_PHASE in preset["phases"]
+        if coding_expected is False and includes_coding:
+            continue
+        presets.append({"key": key, **preset, "includes_coding": includes_coding})
+    return presets
+
+
+def _phase_sequence(
+    session: InterviewSession, job_description: JobDescription
+) -> list[str]:
+    """The ordered phases this session walks. Sessions started without a
+    preset fall back to every phase, skipping coding when the JD doesn't
+    call for it.
+    """
+    if session.selected_phases:
+        return list(session.selected_phases)
+    return [
+        p
+        for p in INTERVIEW_PHASES
+        if p != CODING_PHASE or job_description.coding_assessment_expected
+    ]
 
 
 def _questions_for_phase(session: InterviewSession) -> list[str]:
@@ -109,15 +158,68 @@ def _counting_dispatch(
     return {name: _wrap(fn) for name, fn in dispatch.items()}
 
 
+async def _prefetch_company_research(job_description: JobDescription) -> str | None:
+    """Company research for phases 6/7, fetched once at interview start.
+    A missing company name skips it, and a search failure never blocks the
+    interview from starting.
+    """
+    if not job_description.company_name:
+        return None
+    try:
+        return await search_company_context(
+            company_name=job_description.company_name,
+            role=job_description.role,
+        )
+    except SearchTransientError:
+        logger.warning(
+            "interview.company_research.unavailable",
+            company_name=job_description.company_name,
+        )
+        return None
+
+
+async def _generate_opening(
+    session: InterviewSession,
+    candidate_profile: CandidateProfile,
+    job_description: JobDescription,
+    db: AsyncSession,
+) -> InterviewTurnOutput:
+    """Prefetch the question pool and company research (independent, so
+    concurrently), then generate the interviewer's opening message.
+    """
+    session.question_pool, session.company_research = await asyncio.gather(
+        prefetch_question_pool(job_description=job_description, db=db),
+        _prefetch_company_research(job_description),
+    )
+
+    system_instruction = build_phase_system_instruction(
+        session.current_phase, candidate_profile, job_description
+    )
+    return await generate_structured(
+        task=LLM_TASK_INTERVIEWER,
+        contents=[types.Part.from_text(text=OPENING_PROMPT_TEXT)],
+        text_format=InterviewTurnOutput,
+        system_instruction=system_instruction,
+        thinking_level="medium",
+        session_id=session.id,
+        db=db,
+    )
+
+
 async def start_interview(
     *,
     candidate_profile_id: int,
     job_description_id: int,
     user_id: str,
     db: AsyncSession,
+    preset_key: str | None = None,
+    duration_minutes: int | None = None,
 ) -> InterviewSession:
     """Create a new interview session and generate the opening message
-    for phase 1 (Background Check).
+    for its first phase.
+
+    With a preset, the session walks that preset's phases and gets a
+    per-phase time budget; without one it runs every phase, untimed.
 
     One fresh session per call, never a shared instance across
     candidates - each interview gets its own isolated state.
@@ -138,49 +240,42 @@ async def start_interview(
             f"No job description with id {job_description_id}"
         )
 
+    selected_phases: list[str] = []
+    phase_budget: dict[str, float] = {}
+    if preset_key is not None and duration_minutes is not None:
+        selected_phases, phase_budget = build_session_plan(
+            preset_key=preset_key,
+            duration_minutes=duration_minutes,
+            coding_expected=job_description.coding_assessment_expected,
+        )
+
     session = InterviewSession(
         user_id=user_id,
         candidate_profile_id=candidate_profile_id,
         job_description_id=job_description_id,
-        current_phase=INTERVIEW_PHASES[0],
+        current_phase=(selected_phases or INTERVIEW_PHASES)[0],
+        selected_phases=selected_phases,
+        duration_minutes=duration_minutes,
+        phase_time_budget=phase_budget,
+        phase_started_at=datetime.now(UTC),
     )
     db.add(session)
-    await db.flush()
+    # Committed before any LLM call: the Gateway logs each call on its own
+    # connection, and that log row references this session by foreign key,
+    # so an uncommitted session would make every logged call fail.
+    await db.commit()
 
-    session.question_pool = await prefetch_question_pool(
-        job_description=job_description, db=db
-    )
-
-    # Prefetch once; reuse later instead of searching mid-turn.
-    # Missing company_name skips research, and search failure must not block interview start.
-    if job_description.company_name:
-        try:
-            session.company_research = await search_company_context(
-                company_name=job_description.company_name,
-                role=job_description.role,
-            )
-        except SearchTransientError:
-            logger.warning(
-                "interview.company_research.unavailable",
-                company_name=job_description.company_name,
-            )
-
-    system_instruction = build_phase_system_instruction(
-        session.current_phase, candidate_profile, job_description
-    )
-    opening_prompt_text = "Begin the interview - greet the candidate and start phase 1."
-    output = await generate_structured(
-        task=LLM_TASK_INTERVIEWER,
-        contents=[types.Part.from_text(text=opening_prompt_text)],
-        text_format=InterviewTurnOutput,
-        system_instruction=system_instruction,
-        thinking_level="medium",
-        session_id=session.id,
-        db=db,
-    )
+    try:
+        output = await _generate_opening(
+            session, candidate_profile, job_description, db
+        )
+    except Exception:
+        await db.delete(session)
+        await db.commit()
+        raise
 
     session.transcript = [
-        {"role": "user", "text": opening_prompt_text},
+        {"role": "user", "text": OPENING_PROMPT_TEXT},
         {"role": "model", "text": output.reply, "phase": session.current_phase},
     ]
     await db.commit()
@@ -198,7 +293,7 @@ async def submit_turn(
     session = await get_interview_session_or_404(
         session_id, db, user_id=user_id, for_update=True
     )
-    if session.status != "in_progress":
+    if session.status != SESSION_STATUS_IN_PROGRESS:
         raise InterviewSessionNotActiveError(
             f"Interview session {session_id} is {session.status}, not accepting turns"
         )
@@ -229,6 +324,7 @@ async def submit_turn(
         if session.current_phase in COMPANY_RESEARCH_PHASES
         else None
     )
+    time_status, force_complete = session_phase_time_status(session, datetime.now(UTC))
     system_instruction = build_phase_system_instruction(
         session.current_phase,
         candidate_profile,
@@ -236,6 +332,7 @@ async def submit_turn(
         github_tools_available=github_tools_available,
         retrieved_questions=retrieved_questions,
         company_research=company_research,
+        time_status=time_status,
     )
 
     if github_tools_available:
@@ -268,11 +365,6 @@ async def submit_turn(
         )
         github_calls_made = 0
 
-    session = await get_interview_session_or_404(session_id, db, for_update=True)
-    if session.status != "in_progress":
-        raise InterviewSessionNotActiveError(
-            f"Interview session {session_id} is {session.status}, not accepting turns"
-        )
     session.github_call_count += github_calls_made
 
     reply = output.reply
@@ -280,7 +372,7 @@ async def submit_turn(
     if output.severe_red_flag:
         session.red_flag_count += 1
         session.red_flag_warning_issued = True
-        session.status = "ended_early"
+        session.status = SESSION_STATUS_ENDED_EARLY
         session.ended_at = datetime.now(UTC)
         session.end_reason = "abusive_language"
         reply = f"{reply}\n\n{ABUSIVE_LANGUAGE_ENDED_MESSAGE}"
@@ -296,7 +388,7 @@ async def submit_turn(
             session.red_flag_count > DEFAULT_RED_FLAG_THRESHOLD
             and session.red_flag_warning_issued
         ):
-            session.status = "ended_early"
+            session.status = SESSION_STATUS_ENDED_EARLY
             session.ended_at = datetime.now(UTC)
             session.end_reason = "red_flag_threshold"
             reply = f"{reply}\n\n{INTERVIEW_ENDED_EARLY_MESSAGE}"
@@ -321,22 +413,46 @@ async def submit_turn(
         }
     )
 
-    if session.status == "in_progress" and output.phase_complete:
-        next_index = INTERVIEW_PHASES.index(session.current_phase) + 1
-        if (
-            next_index < len(INTERVIEW_PHASES)
-            and INTERVIEW_PHASES[next_index] == "coding_challenge"
-            and not job_description.coding_assessment_expected
-        ):
-            # JD doesn't call for a coding round just skip straight past it.
-            next_index += 1
-        if next_index < len(INTERVIEW_PHASES):
-            session.current_phase = INTERVIEW_PHASES[next_index]
+    if session.status == SESSION_STATUS_IN_PROGRESS and (
+        output.phase_complete or force_complete
+    ):
+        phases = _phase_sequence(session, job_description)
+        next_index = phases.index(session.current_phase) + 1
+        if next_index < len(phases):
+            session.current_phase = phases[next_index]
+            session.phase_started_at = datetime.now(UTC)
         else:
-            session.status = "completed"
+            session.status = SESSION_STATUS_COMPLETED
             session.ended_at = datetime.now(UTC)
 
     session.transcript = transcript
     await db.commit()
     await db.refresh(session)
     return session
+
+
+async def get_interview_with_job(
+    *, session_id: int, user_id: str, db: AsyncSession
+) -> tuple[InterviewSession, JobDescription]:
+    """A session the user owns together with the job description it was
+    run for. Raises InterviewSessionNotFoundError if the session isn't
+    theirs.
+    """
+    session = await get_interview_session_or_404(session_id, db, user_id=user_id)
+    job_description = await db.get(JobDescription, session.job_description_id)
+    assert job_description is not None  # nosec B101 - FK guarantees the row
+    return session, job_description
+
+
+async def list_interview_sessions(
+    user_id: str, db: AsyncSession
+) -> list[InterviewSession]:
+    """Every interview session the given user has started, newest first -
+    powers the dashboard's recent-interviews list and the documents page.
+    """
+    result = await db.execute(
+        select(InterviewSession)
+        .where(InterviewSession.user_id == user_id)
+        .order_by(InterviewSession.created_at.desc())
+    )
+    return list(result.scalars().all())

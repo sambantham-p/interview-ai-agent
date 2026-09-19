@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router'
 import { GuestOnlyRoute } from './GuestOnlyRoute'
 
 const { mockUseAuth } = vi.hoisted(() => ({
-  mockUseAuth: vi.fn(),
+  mockUseAuth: vi.fn<(...args: unknown[]) => unknown>(),
 }))
 
 vi.mock('../lib/authContext', () => ({
@@ -23,7 +23,7 @@ function renderGuestRoute() {
             </GuestOnlyRoute>
           }
         />
-        <Route path="/setup" element={<div>Setup Page</div>} />
+        <Route path="/dashboard" element={<div>Dashboard Page</div>} />
       </Routes>
     </MemoryRouter>
   )
@@ -42,10 +42,10 @@ describe('GuestOnlyRoute', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('redirects to resume setup when the visitor is already authenticated', () => {
+  it('redirects to the dashboard when the visitor is already authenticated', () => {
     mockUseAuth.mockReturnValue({ isAuthenticated: true, isLoading: false })
     renderGuestRoute()
-    expect(screen.getByText('Setup Page')).toBeInTheDocument()
+    expect(screen.getByText('Dashboard Page')).toBeInTheDocument()
     expect(screen.queryByText('Login Form')).not.toBeInTheDocument()
   })
 
