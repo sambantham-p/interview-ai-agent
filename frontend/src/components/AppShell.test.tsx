@@ -11,24 +11,30 @@ describe('AppShell', () => {
   it('renders the nav items and the page content', () => {
     render(
       <MemoryRouter initialEntries={['/dashboard']}>
-        <AppShell>
+        <AppShell
+          title="Test page"
+          parent={{ label: 'Reports', to: '/reports' }}
+        >
           <div>Page Content</div>
         </AppShell>
-      </MemoryRouter>
+      </MemoryRouter>,
     )
 
     expect(screen.getByText('Dashboard')).toBeInTheDocument()
     expect(screen.getByText('Documents')).toBeInTheDocument()
     expect(screen.getByText('Page Content')).toBeInTheDocument()
+    expect(
+      screen.getByRole('navigation', { name: 'Breadcrumb' }),
+    ).toHaveTextContent('Test page')
   })
 
   it('highlights the active nav item', () => {
     render(
       <MemoryRouter initialEntries={['/documents']}>
-        <AppShell>
+        <AppShell title="Test page">
           <div>Page Content</div>
         </AppShell>
-      </MemoryRouter>
+      </MemoryRouter>,
     )
 
     expect(screen.getByText('Documents').className).toContain('bg-brand/15')

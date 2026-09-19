@@ -5,6 +5,7 @@ import { AuthLayout } from './AuthLayout'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { ErrorAlert } from '../../components/ui/ErrorAlert'
+import { PasswordStrengthMeter } from '../../components/ui/PasswordStrengthMeter'
 import { SuccessCard } from '../../components/ui/SuccessCard'
 import { useAuth } from '../../lib/authContext'
 import { checkPasswordStrength } from '../../lib/passwordRules'
@@ -13,7 +14,7 @@ import { toErrorMessage } from '../../lib/errorMessage'
 export function NewPasswordPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { resetPassword } = useAuth()
+  const { resetPassword, logout } = useAuth()
 
   // Read from the URL, not router state, so the token survives a page
   // refresh on this route instead of being lost.
@@ -32,6 +33,7 @@ export function NewPasswordPage() {
       resetPassword(token, password).catch((err: unknown) => {
         throw new Error(toErrorMessage(err, 'Something went wrong. Please try again.'))
       }),
+    onSuccess: () => logout(),
   })
 
   const error = validationError ?? resetPasswordMutation.error?.message ?? null
@@ -91,15 +93,18 @@ export function NewPasswordPage() {
         <ErrorAlert message={error} />
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-          <Input
-            label="New password"
-            isPassword
-            placeholder="Enter a new password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="new-password"
-          />
+          <div>
+            <Input
+              label="New password"
+              isPassword
+              placeholder="Enter a new password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="new-password"
+            />
+            <PasswordStrengthMeter password={password} />
+          </div>
 
           <Input
             label="Confirm new password"
@@ -107,29 +112,12 @@ export function NewPasswordPage() {
             placeholder="Re-enter your new password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
+            error={
+              confirmPassword && !passwordsMatch ? 'Passwords do not match' : undefined
+            }
             required
             autoComplete="new-password"
           />
-
-          {/* Password status from Figma (Node 7:654) */}
-          {(password || confirmPassword) && (
-            <div
-              className={`flex items-start gap-2 p-3 rounded-md text-[12px] ${
-                ready ? 'bg-[#ddf6f1] text-ink' : 'bg-slate-50 text-muted'
-              }`}
-            >
-              <span aria-hidden="true" className={ready ? 'text-brand' : 'text-faint'}>
-                {ready ? '✓' : '○'}
-              </span>
-              <span>
-                {ready
-                  ? 'Passwords match and meet all requirements'
-                  : !meetsRequirements
-                    ? 'Password must be 8+ characters with upper/lowercase, a number, and a special character.'
-                    : 'Passwords do not match yet.'}
-              </span>
-            </div>
-          )}
 
           <Button
             type="submit"

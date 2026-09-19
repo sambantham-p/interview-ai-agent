@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AppShell } from '../../components/AppShell'
+import { PageIntro } from '../../components/ui/PageIntro'
 import { Stepper } from '../../components/ui/Stepper'
 import { useInterviewPresets } from '../../lib/queries'
 import type { JobDescription, Resume } from '../../types/api'
@@ -21,7 +22,6 @@ export function SetupWizardPage() {
   const preset = presets.data?.find((p) => p.key === presetKey) ?? null
 
   function selectJd(next: JobDescription | null) {
-    // A different JD can change which presets exist (coding or not).
     if (next?.id !== jd?.id) {
       setPresetKey(null)
       setDuration(null)
@@ -30,9 +30,12 @@ export function SetupWizardPage() {
   }
 
   return (
-    <AppShell>
-      <h1 className="text-2xl font-bold text-ink">Set up your interview</h1>
-      <div className="mt-4 mb-8">
+    <AppShell title="New interview">
+      <PageIntro
+        title="Set up your interview"
+        description="Choose your resume, the role you're targeting and a format. The questions are tailored to you."
+      />
+      <div className="mt-8 mb-8">
         <Stepper steps={STEPS} current={step} />
       </div>
 

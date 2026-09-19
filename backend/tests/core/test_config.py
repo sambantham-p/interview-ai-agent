@@ -54,6 +54,8 @@ def test_gateway_settings_routes_interviewer_task() -> None:
     settings = GatewaySettings(
         gemini_interviewer_model="gemini-3.8-flash",
         gemini_judge_model="gemini-3.1-pro",
+        gemini_stt_model="gemini-stt",
+        gemini_tts_model="gemini-tts",
     )
 
     assert settings.model_for_task("interviewer") == "gemini-3.8-flash"
@@ -63,6 +65,8 @@ def test_gateway_settings_routes_all_judge_tasks_to_judge_model() -> None:
     settings = GatewaySettings(
         gemini_interviewer_model="gemini-3.8-flash",
         gemini_judge_model="gemini-3.1-pro",
+        gemini_stt_model="gemini-stt",
+        gemini_tts_model="gemini-tts",
     )
 
     assert settings.model_for_task(LLM_TASK_JUDGE_PROJECT_DEPTH) == "gemini-3.1-pro"
@@ -73,6 +77,8 @@ def test_gateway_settings_raises_key_error_for_unknown_task() -> None:
     settings = GatewaySettings(
         gemini_interviewer_model="gemini-3.8-flash",
         gemini_judge_model="gemini-3.1-pro",
+        gemini_stt_model="gemini-stt",
+        gemini_tts_model="gemini-tts",
     )
 
     with pytest.raises(KeyError):

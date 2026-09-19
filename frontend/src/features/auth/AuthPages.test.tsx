@@ -221,7 +221,7 @@ describe('NewPasswordPage', () => {
       target: { value: 'Prepwise#2026' },
     })
 
-    expect(screen.getByText(/Passwords match and meet all requirements/i)).toBeInTheDocument()
+    expect(screen.getByText('Strong password')).toBeInTheDocument()
     expect(submitButton).not.toBeDisabled()
   })
 })

@@ -6,6 +6,7 @@ import { OtpVerificationForm } from '../../components/ui/OtpVerificationForm'
 import { SuccessCard } from '../../components/ui/SuccessCard'
 import { useAuth } from '../../lib/authContext'
 import { toErrorMessage } from '../../lib/errorMessage'
+import { useToast } from '../../lib/toastContext'
 import type { User } from '../../types/auth'
 
 function readDevOtp(state: unknown): string {
@@ -19,6 +20,7 @@ export function VerifyOtpPage() {
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const { verifyOtp, resendOtp } = useAuth()
+  const { showToast } = useToast()
 
   const email = searchParams.get('email') || ''
   
@@ -27,7 +29,6 @@ export function VerifyOtpPage() {
   const [otp, setOtp] = useState(devOtp || '')
   const [validationError, setValidationError] = useState<string | null>(null)
   const [isResending, setIsResending] = useState(false)
-  const [resendNotice, setResendNotice] = useState<string | null>(null)
 
   const verifyMutation = useMutation<User, Error, string>({
     mutationFn: (code) =>
@@ -70,12 +71,11 @@ export function VerifyOtpPage() {
     if (!email) return
     setIsResending(true)
     setValidationError(null)
-    setResendNotice(null)
     try {
       await resendOtp(email)
-      setResendNotice('A new verification code has been dispatched.')
+      showToast('A new verification code has been sent.')
     } catch (err: unknown) {
-      setValidationError(toErrorMessage(err, 'Failed to resend code.'))
+      showToast(toErrorMessage(err, 'Failed to resend code.'), 'error')
     } finally {
       setIsResending(false)
     }
@@ -97,7 +97,6 @@ export function VerifyOtpPage() {
         devOtpButtonLabel="Verify now"
         onDevOtpClick={() => handleVerify(devOtp)}
         error={error}
-        resendNotice={resendNotice}
         otp={otp}
         onOtpChange={(val) => {
           setOtp(val)

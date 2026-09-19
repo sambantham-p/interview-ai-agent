@@ -2,6 +2,7 @@ export interface User {
   id: string
   email: string
   name: string
+  preferred_name?: string | null
   picture: string | null
   auth_provider: 'google' | 'email'
   is_verified: boolean
@@ -38,4 +39,8 @@ export interface AuthState {
   token: string | null
   isAuthenticated: boolean
   isLoading: boolean
+}
+
+export interface UserResponseData {
+  user: User
 }

@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 from pytest_mock import MockerFixture
 
 from app.core.elevenlabs_client import ElevenLabsRequestError, ElevenLabsTransientError
+from app.core.llm_gateway import SpeechAudio
 from app.core.session_lookup import InterviewSessionNotFoundError
 
 
@@ -9,9 +10,9 @@ def test_text_to_speech_returns_audio_bytes_on_success(
     authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
-        "app.routes.voice.synthesize_speech",
+        "app.routes.voice.synthesize_speech_with_fallback",
         new_callable=mocker.AsyncMock,
-        return_value=b"fake-mp3-bytes",
+        return_value=SpeechAudio(audio=b"fake-mp3-bytes", media_type="audio/mpeg"),
     )
 
     response = authed_client.post(
@@ -27,9 +28,9 @@ def test_text_to_speech_passes_text_and_session_id_through(
     authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     fake_synthesize = mocker.patch(
-        "app.routes.voice.synthesize_speech",
+        "app.routes.voice.synthesize_speech_with_fallback",
         new_callable=mocker.AsyncMock,
-        return_value=b"audio",
+        return_value=SpeechAudio(audio=b"audio", media_type="audio/mpeg"),
     )
 
     authed_client.post(
@@ -52,7 +53,7 @@ def test_text_to_speech_returns_503_for_a_transient_elevenlabs_failure(
     authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
-        "app.routes.voice.synthesize_speech",
+        "app.routes.voice.synthesize_speech_with_fallback",
         side_effect=ElevenLabsTransientError("elevenlabs down"),
         new_callable=mocker.AsyncMock,
     )
@@ -67,7 +68,7 @@ def test_text_to_speech_returns_404_for_nonexistent_session_id(
     authed_client: TestClient, mocker: MockerFixture
 ) -> None:
     mocker.patch(
-        "app.routes.voice.synthesize_speech",
+        "app.routes.voice.synthesize_speech_with_fallback",
         side_effect=InterviewSessionNotFoundError("No interview session with id 99999"),
         new_callable=mocker.AsyncMock,
     )
@@ -89,7 +90,7 @@ def test_text_to_speech_returns_elevenlabs_own_status_and_message_for_a_request_
     # plan-restricted voice). Must surface as ElevenLabs' own status_code
     # and message, not a generic 500.
     mocker.patch(
-        "app.routes.voice.synthesize_speech",
+        "app.routes.voice.synthesize_speech_with_fallback",
         side_effect=ElevenLabsRequestError(
             "Free users cannot use library voices via the API. Please "
             "upgrade your subscription to use this voice.",

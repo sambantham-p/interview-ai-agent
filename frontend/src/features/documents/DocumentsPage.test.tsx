@@ -1,5 +1,6 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ToastProvider } from '../../lib/toastContext'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { DocumentsPage } from './DocumentsPage'
@@ -22,9 +23,11 @@ function renderDocuments() {
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <DocumentsPage />
-      </MemoryRouter>
+      <ToastProvider>
+        <MemoryRouter>
+          <DocumentsPage />
+        </MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>,
   )
 }

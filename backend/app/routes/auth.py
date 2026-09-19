@@ -21,6 +21,7 @@ from app.dto.auth import (
     ResendOtpRequest,
     ResendOtpResponse,
     ResetPasswordRequest,
+    UpdateProfileRequest,
     UserResponse,
     VerifyOtpRequest,
     VerifyResetCodeRequest,
@@ -239,7 +240,10 @@ async def reset_password(
         )
     except auth_service.PasswordResetTokenInvalidError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.UNAUTHORIZED)
-    except auth_service.WeakPasswordError as exc:
+    except (
+        auth_service.WeakPasswordError,
+        auth_service.PasswordReuseError,
+    ) as exc:
         return error_response(
             message=str(exc), status_code=httpx.codes.UNPROCESSABLE_ENTITY
         )
@@ -256,3 +260,26 @@ async def get_current_user_profile(
     user: User = Depends(get_current_user),
 ) -> JSONResponse:
     return success_response(data={"user": UserResponse.model_validate(user)})
+
+
+@router.patch("/auth/me", summary="Update the authenticated user's preferred name")
+async def update_current_user_profile(
+    payload: UpdateProfileRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    updated = await auth_service.update_preferred_name(
+        session=db, user=user, preferred_name=payload.preferred_name
+    )
+    return success_response(data={"user": UserResponse.model_validate(updated)})
+
+
+@router.delete("/auth/me", summary="Permanently delete the authenticated account")
+async def delete_current_user(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    await auth_service.delete_account(session=db, user=user)
+    return success_response(
+        data=MessageResponse(message="Your account has been deleted.")
+    )

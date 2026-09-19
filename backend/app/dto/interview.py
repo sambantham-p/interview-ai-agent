@@ -1,6 +1,8 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.services.interview_presets import max_answer_seconds, session_phase_time_status
 
 
 class InterviewTurnOutput(BaseModel):
@@ -95,32 +97,122 @@ class InterviewTurnRequest(BaseModel):
 
 
 class InterviewTurnResponse(BaseModel):
+    """The interviewer's latest reply plus the session state the live
+    interview screen needs: this turn's judgment flags and the phase
+    timing, alongside the running aggregates.
+    """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     current_phase: str
     status: str
     red_flag_count: int
+    red_flag_warning_issued: bool
     hint_counts: dict[str, int]
     end_reason: str | None
     reply: str
+    hint_level: int | None
+    red_flag: bool
+    severe_red_flag: bool
+    anxiety_detected: bool
+    selected_phases: list[str]
+    duration_minutes: int | None
+    phase_time_budget: dict[str, float]
+    phase_started_at: datetime | None
+    phase_time_status: str | None
+    max_answer_seconds: int
+    server_time: datetime
 
     @classmethod
     def from_session(cls, session: object) -> "InterviewTurnResponse":
+        latest = session.transcript[-1]
+        now = datetime.now(UTC)
+        time_status, _ = session_phase_time_status(session, now)
         return cls(
             id=session.id,
             current_phase=session.current_phase,
             status=session.status,
             red_flag_count=session.red_flag_count,
+            red_flag_warning_issued=session.red_flag_warning_issued,
             hint_counts=session.hint_counts,
             end_reason=session.end_reason,
-            reply=session.transcript[-1]["text"],
+            reply=latest["text"],
+            hint_level=latest.get("hint_level"),
+            red_flag=latest.get("red_flag", False),
+            severe_red_flag=latest.get("severe_red_flag", False),
+            anxiety_detected=latest.get("anxiety_detected", False),
+            selected_phases=session.selected_phases,
+            duration_minutes=session.duration_minutes,
+            phase_time_budget=session.phase_time_budget,
+            phase_started_at=session.phase_started_at,
+            phase_time_status=time_status,
+            max_answer_seconds=max_answer_seconds(session.duration_minutes),
+            server_time=now,
         )
 
 
 def build_turn_response(session: object) -> InterviewTurnResponse:
     """Build the API DTO for the latest interviewer reply in a session."""
     return InterviewTurnResponse.from_session(session)
+
+
+class TranscriptEntry(BaseModel):
+    """One displayable transcript message. `index` is its position in the
+    session's full stored transcript - the same index the Judges cite as
+    `transcript_index` in their evidence.
+    """
+
+    index: int
+    role: str
+    text: str
+    phase: str | None = None
+    hint_level: int | None = None
+    red_flag: bool = False
+    anxiety_detected: bool = False
+
+
+class InterviewSessionDetail(InterviewTurnResponse):
+    """A full session for the live interview and report screens: the
+    turn-response state plus the displayable transcript and the job it
+    was run for.
+    """
+
+    job_role: str
+    company_name: str | None
+    created_at: datetime
+    ended_at: datetime | None
+    transcript: list[TranscriptEntry]
+
+
+def build_session_detail(
+    session: object, job_description: object
+) -> InterviewSessionDetail:
+    """Build the detail DTO, leaving out the synthetic opening prompt
+    (the only stored user entry that isn't a candidate answer).
+    """
+    entries = [
+        TranscriptEntry(
+            index=index,
+            role=entry["role"],
+            text=entry["text"],
+            phase=entry.get("phase"),
+            hint_level=entry.get("hint_level"),
+            red_flag=entry.get("red_flag", False),
+            anxiety_detected=entry.get("anxiety_detected", False),
+        )
+        for index, entry in enumerate(session.transcript)
+        if "phase" in entry
+    ]
+    turn = InterviewTurnResponse.from_session(session)
+    return InterviewSessionDetail(
+        **turn.model_dump(),
+        job_role=job_description.role,
+        company_name=job_description.company_name,
+        created_at=session.created_at,
+        ended_at=session.ended_at,
+        transcript=entries,
+    )
 
 
 class InterviewSessionSummary(BaseModel):

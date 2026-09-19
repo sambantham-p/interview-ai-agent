@@ -22,6 +22,8 @@ def _mock_gateway_settings(mocker: MockerFixture) -> None:
         return_value=GatewaySettings(
             gemini_interviewer_model="gemini-3.8-flash",
             gemini_judge_model="gemini-3.1-pro",
+            gemini_stt_model="gemini-stt",
+            gemini_tts_model="gemini-tts",
         ),
     )
 
@@ -419,6 +421,8 @@ def test_gateway_settings_model_for_task_resolves_interviewer() -> None:
     settings = GatewaySettings(
         gemini_interviewer_model="gemini-3.8-flash",
         gemini_judge_model="gemini-3.1-pro",
+        gemini_stt_model="gemini-stt",
+        gemini_tts_model="gemini-tts",
     )
 
     assert settings.model_for_task("interviewer") == "gemini-3.8-flash"
@@ -428,6 +432,8 @@ def test_gateway_settings_model_for_task_raises_for_unknown_task() -> None:
     settings = GatewaySettings(
         gemini_interviewer_model="gemini-3.8-flash",
         gemini_judge_model="gemini-3.1-pro",
+        gemini_stt_model="gemini-stt",
+        gemini_tts_model="gemini-tts",
     )
 
     try:

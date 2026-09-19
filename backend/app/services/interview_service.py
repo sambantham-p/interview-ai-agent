@@ -39,7 +39,7 @@ from app.models.job_description import JobDescription
 from app.services.interview_presets import (
     InvalidInterviewPresetError,
     build_session_plan,
-    phase_time_status,
+    session_phase_time_status,
 )
 from app.services.interview_prompts import (
     ABUSIVE_LANGUAGE_ENDED_MESSAGE,
@@ -59,6 +59,7 @@ __all__ = [
     "InterviewSessionNotActiveError",
     "InterviewSessionNotFoundError",
     "InvalidInterviewPresetError",
+    "get_interview_with_job",
     "list_interview_presets",
     "start_interview",
     "submit_turn",
@@ -108,20 +109,6 @@ def _phase_sequence(
         for p in INTERVIEW_PHASES
         if p != CODING_PHASE or job_description.coding_assessment_expected
     ]
-
-
-def _current_phase_time_status(
-    session: InterviewSession, now: datetime
-) -> tuple[str | None, bool]:
-    """(time_status, force_complete) for the current phase, or
-    (None, False) when the session has no time budget.
-    """
-    budget = (session.phase_time_budget or {}).get(session.current_phase)
-    if not budget or session.phase_started_at is None:
-        return None, False
-    return phase_time_status(
-        budget_minutes=budget, phase_started_at=session.phase_started_at, now=now
-    )
 
 
 def _questions_for_phase(session: InterviewSession) -> list[str]:
@@ -337,7 +324,7 @@ async def submit_turn(
         if session.current_phase in COMPANY_RESEARCH_PHASES
         else None
     )
-    time_status, force_complete = _current_phase_time_status(session, datetime.now(UTC))
+    time_status, force_complete = session_phase_time_status(session, datetime.now(UTC))
     system_instruction = build_phase_system_instruction(
         session.current_phase,
         candidate_profile,
@@ -442,6 +429,19 @@ async def submit_turn(
     await db.commit()
     await db.refresh(session)
     return session
+
+
+async def get_interview_with_job(
+    *, session_id: int, user_id: str, db: AsyncSession
+) -> tuple[InterviewSession, JobDescription]:
+    """A session the user owns together with the job description it was
+    run for. Raises InterviewSessionNotFoundError if the session isn't
+    theirs.
+    """
+    session = await get_interview_session_or_404(session_id, db, user_id=user_id)
+    job_description = await db.get(JobDescription, session.job_description_id)
+    assert job_description is not None  # nosec B101 - FK guarantees the row
+    return session, job_description
 
 
 async def list_interview_sessions(

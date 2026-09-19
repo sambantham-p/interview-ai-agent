@@ -124,7 +124,7 @@ describe('AuthProvider', () => {
     expect(screen.getByTestId('authed').textContent).toBe('true')
   })
 
-  it('saveAuthSession stores the user without a token when the response omits one', async () => {
+  it('a sign-in response without a token does not count as signed in', async () => {
     mockPost.mockResolvedValueOnce({ user: fakeUser })
     const probe = renderWithProbe()
     await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
@@ -133,7 +133,7 @@ describe('AuthProvider', () => {
       await probe.ctx.loginWithEmail('alex@prepwise.ai', 'Prepwise#2026')
     })
 
-    expect(screen.getByTestId('authed').textContent).toBe('true')
+    expect(screen.getByTestId('authed').textContent).toBe('false')
     expect(localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)).toBeNull()
   })
 

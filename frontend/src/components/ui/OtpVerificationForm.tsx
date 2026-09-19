@@ -12,7 +12,6 @@ interface OtpVerificationFormProps {
   devOtpButtonLabel: string
   onDevOtpClick: () => void
   error: string | null
-  resendNotice?: string | null
   otp: string
   onOtpChange: (val: string) => void
   onOtpComplete: (val: string) => void
@@ -24,11 +23,7 @@ interface OtpVerificationFormProps {
   submitLabel: string
 }
 
-// Shared by VerifyOtpPage (signup email verification) and ResetCodePage
-// (password reset) - both flows are "enter a 6-digit code, optionally
-// resend it, then continue," just with different copy and what happens
-// after the code checks out (each page keeps its own mutation/success
-// screen, only the input form itself is shared here).
+
 export function OtpVerificationForm({
   eyebrow,
   heading,
@@ -38,7 +33,6 @@ export function OtpVerificationForm({
   devOtpButtonLabel,
   onDevOtpClick,
   error,
-  resendNotice,
   otp,
   onOtpChange,
   onOtpComplete,
@@ -77,11 +71,6 @@ export function OtpVerificationForm({
       )}
 
       <ErrorAlert message={error} />
-      {resendNotice && (
-        <div className="p-3 bg-green-50 border border-green-200 text-green-700 text-[13px] rounded-[10px]">
-          {resendNotice}
-        </div>
-      )}
 
       <div className="py-2">
         <OtpDigitBoxes
