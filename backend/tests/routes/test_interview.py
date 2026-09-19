@@ -171,7 +171,7 @@ def test_create_report_returns_201_with_full_report(
         return_value=_fake_session(),
     )
     mocker.patch(
-        "app.routes.interview.get_evaluations_by_ids",
+        "app.routes.interview.get_report_evaluations",
         new_callable=mocker.AsyncMock,
         return_value=[_fake_judge_evaluation()],
     )
@@ -235,7 +235,7 @@ def test_read_report_returns_200_with_persisted_report(
         return_value=_fake_session(),
     )
     mocker.patch(
-        "app.routes.interview.get_evaluations_by_ids",
+        "app.routes.interview.get_report_evaluations",
         new_callable=mocker.AsyncMock,
         return_value=[_fake_judge_evaluation()],
     )
@@ -279,3 +279,37 @@ def test_read_report_returns_404_when_no_report_generated_yet(
     response = authed_client.get("/api/v1/interview/10/report")
 
     assert response.status_code == 404
+
+
+def test_get_interviews_returns_the_users_sessions(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    mocker.patch(
+        "app.routes.interview.list_interview_sessions",
+        new_callable=mocker.AsyncMock,
+        return_value=[_fake_session()],
+    )
+
+    response = authed_client.get("/api/v1/interview")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"][0]["id"] == 10
+    assert body["data"][0]["current_phase"] == "background_check"
+    assert "reply" not in body["data"][0]
+
+
+def test_get_interviews_returns_empty_list_when_user_has_none(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    mocker.patch(
+        "app.routes.interview.list_interview_sessions",
+        new_callable=mocker.AsyncMock,
+        return_value=[],
+    )
+
+    response = authed_client.get("/api/v1/interview")
+
+    assert response.status_code == 200
+    assert response.json()["data"] == []

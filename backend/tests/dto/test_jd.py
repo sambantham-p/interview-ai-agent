@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.jd import JobDescriptionInput
+from app.dto.jd import JobDescriptionInput
 
 
 def test_accepts_full_text_alone() -> None:

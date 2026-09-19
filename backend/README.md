@@ -60,7 +60,8 @@ backend/
 │   │                               #   judge_evaluation, interview_report
 │   ├── schemas/                   # request/response Pydantic models — response.py, resume.py, jd.py,
 │   │                               #   interview.py, judge.py, voice.py
-│   ├── routes/                    # health.py, resume.py, jd.py, interview.py (start/turn/report), voice.py
+│   ├── routes/                    # health.py, resume.py (upload + list), jd.py (submit + list),
+│   │                               #   interview.py (list/start/turn/report), voice.py
 │   ├── services/                  # business logic — resume_service, jd_service, interview_service +
 │   │                               #   interview_prompts (the 7-phase Interviewer agent), judge_service +
 │   │                               #   judge_prompts (the 5 post-hoc Judges), question_bank_service (RAG)

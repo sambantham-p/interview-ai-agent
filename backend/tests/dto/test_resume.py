@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
+from app.dto.resume import ResumeExtraction, ResumeUploadResponse
 from app.models.candidate_profile import CandidateProfile
-from app.schemas.resume import ResumeExtraction, ResumeUploadResponse
 
 
 def test_resume_upload_response_validates_from_a_candidate_profile_orm_object() -> None:

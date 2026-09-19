@@ -1,9 +1,11 @@
 import pytest
 from pytest_mock import MockerFixture
 
-from app.schemas.jd import JobDescriptionExtraction
+from app.dto.jd import JobDescriptionExtraction
+from app.models.job_description import JobDescription
 from app.services.jd_service import (
     JobDescriptionExtractionError,
+    list_job_descriptions,
     parse_and_persist_job_description,
 )
 
@@ -296,3 +298,42 @@ async def test_parse_and_persist_job_description_allows_a_short_short_descriptio
     )
 
     assert jd.role == "AI Engineer"
+
+
+def _mock_db_with_jds(mocker: MockerFixture, jds: list[JobDescription]):
+    fake_result = mocker.MagicMock()
+    fake_result.scalars.return_value.all.return_value = jds
+    fake_db = mocker.AsyncMock()
+    fake_db.execute = mocker.AsyncMock(return_value=fake_result)
+    return fake_db
+
+
+async def test_list_job_descriptions_returns_jds_for_the_given_user(
+    mocker: MockerFixture,
+) -> None:
+    jds = [
+        JobDescription(
+            id=1,
+            user_id="usr_a",
+            role="Backend Engineer",
+            seniority="mid",
+            tech_stack=["Python"],
+            coding_assessment_expected=True,
+        ),
+    ]
+    fake_db = _mock_db_with_jds(mocker, jds)
+
+    result = await list_job_descriptions("usr_a", fake_db)
+
+    assert result == jds
+    fake_db.execute.assert_awaited_once()
+
+
+async def test_list_job_descriptions_returns_empty_list_when_user_has_none(
+    mocker: MockerFixture,
+) -> None:
+    fake_db = _mock_db_with_jds(mocker, [])
+
+    result = await list_job_descriptions("usr_a", fake_db)
+
+    assert result == []

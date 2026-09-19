@@ -39,7 +39,7 @@ async def test_send_password_reset_email_local_dev_without_smtp(
 ) -> None:
     mocker.patch(
         "app.services.email_service.get_smtp_settings",
-        return_value=SMTPSettings(),
+        return_value=SMTPSettings(smtp_host=None, smtp_user=None, smtp_password=None),
     )
 
     success = await send_password_reset_email("jane@example.com", "Jane", "123456")
@@ -73,7 +73,7 @@ async def test_send_verification_email_local_dev_without_smtp(
 ) -> None:
     mocker.patch(
         "app.services.email_service.get_smtp_settings",
-        return_value=SMTPSettings(),
+        return_value=SMTPSettings(smtp_host=None, smtp_user=None, smtp_password=None),
     )
 
     success = await send_verification_email("jane@example.com", "Jane", "123456")

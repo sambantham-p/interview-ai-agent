@@ -1,14 +1,16 @@
 import pytest
 from pytest_mock import MockerFixture
 
-from app.schemas.resume import (
+from app.dto.resume import (
     EducationEntry,
     ExperienceEntry,
     ProjectEntry,
     ResumeExtraction,
 )
+from app.models.candidate_profile import CandidateProfile
 from app.services.resume_service import (
     ResumeExtractionError,
+    list_resumes,
     parse_and_persist_resume,
 )
 
@@ -116,3 +118,42 @@ async def test_parse_and_persist_resume_accepts_a_sparse_but_non_empty_extractio
 
     assert profile.skills == ["Python"]
     fake_db.add.assert_called_once_with(profile)
+
+
+def _mock_db_with_profiles(mocker: MockerFixture, profiles: list[CandidateProfile]):
+    fake_result = mocker.MagicMock()
+    fake_result.scalars.return_value.all.return_value = profiles
+    fake_db = mocker.AsyncMock()
+    fake_db.execute = mocker.AsyncMock(return_value=fake_result)
+    return fake_db
+
+
+async def test_list_resumes_returns_profiles_for_the_given_user(
+    mocker: MockerFixture,
+) -> None:
+    profiles = [
+        CandidateProfile(
+            id=1,
+            user_id="usr_a",
+            education=[],
+            experience=[],
+            projects=[],
+            skills=[],
+        ),
+    ]
+    fake_db = _mock_db_with_profiles(mocker, profiles)
+
+    result = await list_resumes("usr_a", fake_db)
+
+    assert result == profiles
+    fake_db.execute.assert_awaited_once()
+
+
+async def test_list_resumes_returns_empty_list_when_user_has_none(
+    mocker: MockerFixture,
+) -> None:
+    fake_db = _mock_db_with_profiles(mocker, [])
+
+    result = await list_resumes("usr_a", fake_db)
+
+    assert result == []

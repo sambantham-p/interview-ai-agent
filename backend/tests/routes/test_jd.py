@@ -208,3 +208,35 @@ def test_submit_jd_returns_500_for_an_unexpected_failure(
         assert response.json()["success"] is False
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_get_job_descriptions_returns_the_users_jds(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    mocker.patch(
+        "app.routes.jd.list_job_descriptions",
+        new_callable=mocker.AsyncMock,
+        return_value=[_fake_job_description()],
+    )
+
+    response = authed_client.get("/api/v1/jd")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"][0]["role"] == "Backend Engineer"
+
+
+def test_get_job_descriptions_returns_empty_list_when_user_has_none(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    mocker.patch(
+        "app.routes.jd.list_job_descriptions",
+        new_callable=mocker.AsyncMock,
+        return_value=[],
+    )
+
+    response = authed_client.get("/api/v1/jd")
+
+    assert response.status_code == 200
+    assert response.json()["data"] == []

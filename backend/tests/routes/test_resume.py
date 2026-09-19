@@ -237,3 +237,45 @@ def test_upload_resume_returns_500_for_an_unexpected_failure(
         assert response.json()["success"] is False
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_get_resumes_returns_the_users_resumes(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    mocker.patch(
+        "app.routes.resume.list_resumes",
+        new_callable=mocker.AsyncMock,
+        return_value=[
+            CandidateProfile(
+                id=1,
+                education=[],
+                experience=[],
+                projects=[],
+                skills=["Python"],
+                github_url=None,
+                created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+        ],
+    )
+
+    response = authed_client.get("/api/v1/resume")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"][0]["skills"] == ["Python"]
+
+
+def test_get_resumes_returns_empty_list_when_user_has_none(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    mocker.patch(
+        "app.routes.resume.list_resumes",
+        new_callable=mocker.AsyncMock,
+        return_value=[],
+    )
+
+    response = authed_client.get("/api/v1/resume")
+
+    assert response.status_code == 200
+    assert response.json()["data"] == []

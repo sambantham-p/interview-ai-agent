@@ -6,12 +6,21 @@ stable — tooling (TypeScript, Tailwind, TanStack Query, React Router,
 Vitest, oxlint/Prettier) was scaffolded ahead of schedule and verified via
 the `health-check/` page. **Auth (login, signup, email OTP verification,
 forgot/reset password) is now real, built, and tested** — see
-[Authentication](#authentication) below. Every other page
+[Authentication](#authentication) below. **Frontend Finalization is
+underway as 5 reviewable checkpoints (see root `CLAUDE.md`'s Stage 5
+entry) — Checkpoint 1 done:** `dashboard/` and `documents/` are now real
+pages (behind a new `AppShell` sidebar shell), and the authenticated
+landing route is `/dashboard`, not `/setup`. Checkpoint 1 also locked a
+small set of reusable visual-polish primitives (icon set, `Card`'s
+hover-lift, `StatTile`, tinted icon chips, icon-paired section headers)
+— see root `CLAUDE.md`'s Frontend Conventions for the full list; reuse
+these in every later checkpoint rather than inventing a new look per
+screen. Every other page
 (`resume-upload/`, `interview-chat/`, `coding-challenge/`, `report/`) is
-still an inert placeholder, each waiting on its own backend stage's
-endpoints. This document is both a developer guide for what's real today
-and a spec to build against for what isn't — when a placeholder becomes
-real, update this file in the same commit, don't silently diverge from it.
+still an inert placeholder, each waiting on its own checkpoint. This
+document is both a developer guide for what's real today and a spec to
+build against for what isn't — when a placeholder becomes real, update
+this file in the same commit, don't silently diverge from it.
 
 ## Tech stack
 
@@ -64,7 +73,7 @@ deletable as one unit:
 frontend/                            # ✓ = real, built and verified; everything else is a placeholder
 ├── src/
 │   ├── main.tsx                   # ✓ entry point — QueryClientProvider + RootErrorBoundary + App
-│   ├── App.tsx                    # ✓ React Router route table (auth + placeholder routes)
+│   ├── App.tsx                    # ✓ React Router route table (auth + workspace + placeholder routes)
 │   ├── app/
 │   │   └── queryClient.ts         # ✓ one shared TanStack QueryClient instance
 │   ├── features/
@@ -81,24 +90,39 @@ frontend/                            # ✓ = real, built and verified; everythin
 │   │   │   ├── ResetCodePage.tsx      #   /reset-password/verify
 │   │   │   ├── NewPasswordPage.tsx    #   /reset-password/new
 │   │   │   └── AuthPages.test.tsx     #   covers every page above + PasswordStrengthMeter/OtpDigitBoxes
-│   │   ├── resume-upload/         # placeholder — Interview setup: resume PDF + JD input
-│   │   │   └── ResumeUploadPage.tsx   #   real useUploadResume.ts mutation lands with Stage 1's
-│   │   │                              #   POST /candidates/resume endpoint
-│   │   ├── interview-chat/        # placeholder — Phases 1,2,3,5,6,7, one continuous view
-│   │   │   └── InterviewChatPage.tsx  #   real useChatStream.ts (ReadableStream/SSE) lands with
-│   │   │                              #   Stage 2's chat-turn endpoints
-│   │   ├── coding-challenge/      # placeholder — Phase 4, spoken/text discussion only,
-│   │   │   └── CodingChallengePage.tsx #  no editor/execution — folds into interview-chat's
-│   │   │                              #   chat-turn flow, same shape as every other phase
-│   │   └── report/                # placeholder — final evidence-backed report view
-│   │       └── ReportPage.tsx         #   real useReport.ts (cached useQuery) wired once
-│   │                                  #   Stage 5 builds it, against the already-built
-│   │                                  #   Stage 4 report endpoint
+│   │   ├── dashboard/              # ✓ REAL (Checkpoint 1) — authed landing route, /dashboard
+│   │   │   ├── DashboardPage.tsx      #   recent interviews (GET /interview) + start-interview CTA
+│   │   │   └── DashboardPage.test.tsx
+│   │   ├── documents/              # ✓ REAL (Checkpoint 1) — /documents
+│   │   │   ├── DocumentsPage.tsx      #   resumes (GET /resume) + JDs (GET /jd), status/preview only
+│   │   │   └── DocumentsPage.test.tsx
+│   │   ├── resume-upload/         # placeholder — folds into Checkpoint 2's onboarding wizard at /setup
+│   │   │   └── ResumeUploadPage.tsx
+│   │   ├── interview-chat/        # placeholder — Phases 1,2,3,5,6,7, one continuous view;
+│   │   │   └── InterviewChatPage.tsx  #   real logic + real-time voice land with Checkpoint 3
+│   │   ├── coding-challenge/      # placeholder, SLATED FOR REMOVAL in Checkpoint 3 — Phase 4 is
+│   │   │   └── CodingChallengePage.tsx #  just more chat through interview-chat/, no separate route
+│   │   └── report/                # placeholder — real logic + PDF export land with Checkpoint 4
+│   │       └── ReportPage.tsx
 │   ├── components/
-│   │   ├── Navigation.tsx         # ✓ top nav — signed-in profile menu / sign-in+sign-up links
+│   │   ├── AppShell.tsx           # ✓ REAL (Checkpoint 1) — persistent left-sidebar "workspace"
+│   │   │                          #   shell (dashboard/documents/report); the live interview stays
+│   │   │                          #   full-bleed dark and does NOT use this shell (see CLAUDE.md's
+│   │   │                          #   two-track design note under Stage 5)
+│   │   ├── Navigation.tsx         # ✓ top nav for the pre-auth "marketing" pages (landing, 404) —
+│   │   │                          #   AppShell's UserMenu is the equivalent inside the workspace
 │   │   ├── RootErrorBoundary.tsx  # ✓ root-level render-crash fallback (see Error handling below)
 │   │   └── ui/                    # ✓ shared, presentational, no feature imports these back
 │   │       ├── Button.tsx / Input.tsx           #   primitives (variants, isPassword show/hide)
+│   │       ├── Card.tsx / Badge.tsx             #   ✓ REAL (Checkpoint 1) — workspace card shell (interactive hover-lift
+│   │       │                                    #   prop) + status pills (brand/navy/success/warning/danger/neutral)
+│   │       ├── StatTile.tsx                     #   ✓ REAL (Checkpoint 1) — icon-in-circle + number + label metric card
+│   │       ├── icons.tsx                        #   ✓ REAL (Checkpoint 1) — grouped outline icon set, currentColor
+│   │       ├── EmptyState.tsx / LoadingSkeleton.tsx / ErrorState.tsx  #   ✓ REAL (Checkpoint 1) — one shared trio for every list/data screen;
+│   │       │                                    #   LoadingSkeleton mimics the real card shape + a shimmer sweep, not flat bars
+│   │       ├── Avatar.tsx                       #   ✓ REAL (Checkpoint 1) — the one place that renders a user's picture;
+│   │       │                                    #   sets referrerPolicy="no-referrer" (Google's CDN 403s without it) + onError→initial fallback
+│   │       ├── UserMenu.tsx                     #   ✓ REAL (Checkpoint 1) — AppShell's account dropdown, client-only sign out
 │   │       ├── GoogleSignInButton.tsx / GoogleIcon.tsx
 │   │       ├── OtpDigitBoxes.tsx                #   6-digit code input, shared by signup + reset OTP
 │   │       ├── PasswordStrengthMeter.tsx        #   4-rule strength bar (signup)
@@ -106,10 +130,16 @@ frontend/                            # ✓ = real, built and verified; everythin
 │   ├── lib/
 │   │   ├── api.ts                 # ✓ fetch wrapper: unwraps {success, data, error}, throws on error
 │   │   ├── authContext.tsx        # ✓ AuthProvider/useAuth — session state, all /auth/* calls
+│   │   ├── queries.ts             # ✓ REAL (Checkpoint 1) — shared TanStack Query hooks
+│   │   │                          #   (useResumes/useJobDescriptions/useInterviews) used by more
+│   │   │                          #   than one feature — lives here, not in either feature folder,
+│   │   │                          #   per the "no cross-feature imports" rule below
+│   │   ├── interviewLabels.ts     # ✓ REAL (Checkpoint 1) — phase/status/end_reason → human labels
 │   │   └── passwordRules.ts       # ✓ checkPasswordStrength() — mirrors backend's password rules,
 │   │                              #   shared by PasswordStrengthMeter and NewPasswordPage
 │   ├── types/
-│   │   ├── api.ts                 # ✓ TS types mirroring backend/app/schemas/response.py
+│   │   ├── api.ts                 # ✓ TS types mirroring backend/app/schemas/response.py — now
+│   │   │                          #   also Resume/JobDescription/InterviewSessionSummary (Checkpoint 1)
 │   │   └── auth.ts                # ✓ TS types mirroring backend/app/schemas/auth.py
 │   ├── test/
 │   │   └── setup.ts               # ✓ vitest setup — @testing-library/jest-dom matchers
@@ -201,35 +231,18 @@ candidate out; it's restored once on mount.
 
 **Sign-up → verify flow:** `SignupPage` calls `registerWithEmail`, then
 navigates to `/verify-email?email=...` — the email is a fine URL param
-(not a secret), but the OTP code the backend echoes back in local dev
-(`dev_otp`, see below) travels via React Router **navigation state**
-(`navigate(path, { state: { devOtp } })`), not the URL — a verification
-code shouldn't end up in browser history or a server access log, even
-though the backend only ever populates it in `ENVIRONMENT=local`. The
-forgot-password flow (`ForgotPasswordPage` → `ResetCodePage` →
-`NewPasswordPage`) follows the same pattern: `dev_otp` and the
-short-lived `reset_token` both travel as router state, never as a query
-param.
+(not a secret). The forgot-password flow (`ForgotPasswordPage` →
+`ResetCodePage` → `NewPasswordPage`) follows the same shape, with the
+short-lived `reset_token` travelling as React Router **navigation
+state**, never a query param.
 
-**Dev-only Google sign-in shortcut:** `GoogleSignInButton.tsx` tries the
-real Google Identity Services `prompt()` flow first; if `window.google`
-isn't available (script blocked, or a click racing the script's `async`
-load) it falls back to signing in as a hardcoded demo account
-(`alex.chen@gmail.com`) — but **only** when `import.meta.env.DEV` is
-true. That's a Vite build-time constant: the whole fallback branch is
-dead-code-eliminated from a production build (verified by grepping
-`dist/assets/*.js` for the demo email after a real `npm run build` — zero
-hits). The backend independently rejects the resulting `"dev-token"`
-credential outside `ENVIRONMENT=local` too (`auth_service.py`'s
-`dev_shortcuts_allowed()`) — two independent gates, not one relying on
-the other.
-
-**`dev_otp` banners:** `VerifyOtpPage` and `ResetCodePage` both show a
-"Dev code auto-filled" banner when `devOtp` is present in router state,
-with a one-click "Verify now"/"Continue now" button — purely a local-dev
-convenience so you don't have to read the code out of a log line. It's
-`null`/absent whenever the backend's `ENVIRONMENT` isn't `local`, so this
-banner never renders outside local dev.
+**No dev-only auth shortcuts — removed entirely, not gated.** There is
+no mock/bypass Google sign-in and no OTP echoed back in any `/auth/*`
+response — see root `CLAUDE.md`'s Authentication section. Local
+development uses the same real Google Identity Services flow as
+production (a dev-only `VITE_GOOGLE_CLIENT_ID` OAuth client) and real
+SMTP for OTP email, or the backend logs the OTP to its own console when
+`SMTP_HOST` is unset — there is nothing for the frontend to surface.
 
 **Password rules:** `lib/passwordRules.ts`'s `checkPasswordStrength()`
 mirrors `backend/app/core/security.py`'s `validate_password_strength()` —
@@ -252,7 +265,7 @@ fill in real values - `.env` itself stays gitignored, as ever:
 | Var | Purpose |
 |---|---|
 | `VITE_API_BASE_URL` | Left unset for local dev — `vite.config.ts`'s dev-server proxy forwards `/api/*` to the backend on `:8000`. Set only in production (Railway web service env var) to the deployed backend's base URL. |
-| `VITE_GOOGLE_CLIENT_ID` | Google OAuth client ID (Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID, "Web application" type) — used by `GoogleSignInButton.tsx` to initialize Google Identity Services. **Must match the backend's `GOOGLE_OAUTH_CLIENT_ID` exactly** — the backend checks the `aud` claim on every Google ID token against its own configured value, so a mismatch here makes every real Google sign-in fail with a 401, silently, until both are set to the same value. Left unset in local dev, `GoogleSignInButton` falls back to a placeholder client ID and Google's real flow won't work — use the dev-only demo sign-in instead (see Authentication below). |
+| `VITE_GOOGLE_CLIENT_ID` | Google OAuth client ID (Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID, "Web application" type) — used by `GoogleSignInButton.tsx` to initialize Google Identity Services. **Must match the backend's `GOOGLE_OAUTH_CLIENT_ID` exactly** — the backend checks the `aud` claim on every Google ID token against its own configured value, so a mismatch here makes every real Google sign-in fail with a 401, silently, until both are set to the same value. Left unset, `GoogleSignInButton` `console.error`s and renders nothing — a missing env var fails loudly rather than falling back to a fake-looking button (see root `CLAUDE.md`'s Frontend Conventions). |
 
 ## Error handling & logging (no direct backend-logger equivalent)
 
@@ -334,8 +347,8 @@ npm run format:check    # verify formatting without changing files
 ```bash
 cd frontend
 npm install
-cp .env.example .env   # fill in VITE_GOOGLE_CLIENT_ID for real Google sign-in
-                        #   (or skip it and use the dev-only demo sign-in, see Authentication)
+cp .env.example .env   # fill in VITE_GOOGLE_CLIENT_ID (a dev-only OAuth
+                        #   client pointed at localhost) for Google sign-in to work locally
 npm run dev         # http://localhost:5173 — proxies /api/* to the
                      #   backend on :8000 (vite.config.ts), so start the
                      #   backend too (see backend/README.md) to see the
@@ -348,12 +361,10 @@ npm run preview      # serve the production build locally
 
 **To exercise the login/signup flow locally**, the backend needs its own
 `.env` set up too (see `backend/README.md`) — specifically
-`JWT_SECRET_KEY` (required, no default) and `ENVIRONMENT=local` (the
-default if unset is `production`, which turns off the `dev_otp`
-banners and the demo Google sign-in — see Authentication above). Real
-email delivery needs `SMTP_*` vars filled in; left unset, the backend
-logs the OTP instead of emailing it, which is what the `dev_otp` banner
-surfaces in the UI.
+`JWT_SECRET_KEY` (required, no default). Real email delivery needs
+`SMTP_*` vars filled in; left unset, the backend logs the OTP to its own
+console instead of emailing it (no dev-only shortcut on either side of
+the stack — see root `CLAUDE.md`'s Authentication section).
 
 ## `package-lock.json` is gitignored
 
@@ -375,12 +386,15 @@ trades away:
 
 ## Pages (mapped to Interview Phases, per root `CLAUDE.md`)
 
-| Route | Feature folder | Interview Phase(s) |
+| Route | Feature folder | Status |
 |---|---|---|
-| `/setup` | `resume-upload/` | Resume + JD intake (Stage 1 backend) |
-| `/interview/:sessionId` | `interview-chat/` | 1, 2, 3, 5, 6, 7 (all dialogue phases, one continuous view — matches the single persistent Interviewer agent, no page break per phase) |
-| `/interview/:sessionId/coding` | `coding-challenge/` | 4 (only rendered if the JD implied a coding assessment) |
-| `/interview/:sessionId/report` | `report/` | Final evidence-backed report |
+| `/dashboard` | `dashboard/` | ✓ real (Checkpoint 1) — authenticated landing route |
+| `/documents` | `documents/` | ✓ real (Checkpoint 1) |
+| `/setup` | `resume-upload/` | placeholder — becomes the Checkpoint 2 onboarding wizard (resume → JD → preset/duration picker → mic check → lobby) |
+| `/interview/:sessionId` | `interview-chat/` | placeholder — Phases 1, 2, 3, 5, 6, 7 (all dialogue phases, one continuous view — matches the single persistent Interviewer agent, no page break per phase), real logic + real-time voice land in Checkpoint 3 |
+| `/interview/:sessionId/coding` | `coding-challenge/` | placeholder, **removed in Checkpoint 3** — Phase 4 folds into `interview-chat/`, no separate route (only ever rendered if the JD implied a coding assessment) |
+| `/interview/:sessionId/report` | `report/` | placeholder — real logic + PDF export land in Checkpoint 4 |
+| `/settings` | `settings/` | not yet created — lands in Checkpoint 5, done last |
 
 The chat UI staying **one page across phases 1–7** (not one route per
 phase) matches a decision already made on the backend: the Conversational

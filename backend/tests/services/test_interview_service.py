@@ -12,13 +12,14 @@ from app.constants.github import (
 from app.constants.interview import DEFAULT_RED_FLAG_THRESHOLD, INTERVIEW_PHASES
 from app.core.github_tools import GITHUB_TOOL_DISPATCH, GITHUB_TOOLS
 from app.core.search_mcp_client import SearchTransientError
+from app.dto.interview import InterviewTurnOutput
 from app.models.candidate_profile import CandidateProfile
 from app.models.interview_session import InterviewSession
 from app.models.job_description import JobDescription
-from app.schemas.interview import InterviewTurnOutput
 from app.services.interview_service import (
     InterviewSessionNotActiveError,
     InterviewSessionNotFoundError,
+    list_interview_sessions,
     start_interview,
     submit_turn,
 )
@@ -587,10 +588,8 @@ async def test_submit_turn_adds_actual_github_calls_made_to_the_session_counter(
         "app.services.interview_service.generate_structured_with_tools",
         side_effect=fake_generate_with_tools,
     )
-    mocker.patch("app.core.github_client.list_repos", new_callable=mocker.AsyncMock)
-    mocker.patch(
-        "app.core.github_client.list_repo_files", new_callable=mocker.AsyncMock
-    )
+    mocker.patch("app.core.github_tools.list_repos", new_callable=mocker.AsyncMock)
+    mocker.patch("app.core.github_tools.list_repo_files", new_callable=mocker.AsyncMock)
 
     updated = await submit_turn(
         session_id=10, message="show me the repo", user_id=TEST_USER_ID, db=fake_db
@@ -970,3 +969,40 @@ async def test_submit_turn_enters_coding_phase_when_jd_requires_it(
 
     assert updated.current_phase == INTERVIEW_PHASES[3]
     assert updated.current_phase == "coding_challenge"
+
+
+def _mock_db_with_sessions(mocker: MockerFixture, sessions: list[InterviewSession]):
+    fake_result = mocker.MagicMock()
+    fake_result.scalars.return_value.all.return_value = sessions
+    fake_db = mocker.AsyncMock()
+    fake_db.execute = mocker.AsyncMock(return_value=fake_result)
+    return fake_db
+
+
+async def test_list_interview_sessions_returns_sessions_for_the_given_user(
+    mocker: MockerFixture,
+) -> None:
+    sessions = [
+        InterviewSession(
+            id=1,
+            user_id="usr_a",
+            candidate_profile_id=1,
+            job_description_id=1,
+        ),
+    ]
+    fake_db = _mock_db_with_sessions(mocker, sessions)
+
+    result = await list_interview_sessions("usr_a", fake_db)
+
+    assert result == sessions
+    fake_db.execute.assert_awaited_once()
+
+
+async def test_list_interview_sessions_returns_empty_list_when_user_has_none(
+    mocker: MockerFixture,
+) -> None:
+    fake_db = _mock_db_with_sessions(mocker, [])
+
+    result = await list_interview_sessions("usr_a", fake_db)
+
+    assert result == []
