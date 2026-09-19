@@ -37,6 +37,7 @@ async def test_parse_and_persist_resume_builds_and_persists_a_candidate_profile(
     fake_db = mocker.AsyncMock()
     # AsyncSession.add() is sync, unlike commit/refresh
     fake_db.add = mocker.MagicMock()
+    fake_db.scalar.return_value = None
 
     profile = await parse_and_persist_resume(
         b"pdf bytes", fake_db, user_id="usr_test123"
@@ -92,8 +93,9 @@ async def test_parse_and_persist_resume_rejects_a_completely_empty_extraction(
     _mock_extraction(mocker, extracted)
     fake_db = mocker.AsyncMock()
     fake_db.add = mocker.MagicMock()
+    fake_db.scalar.return_value = None
 
-    with pytest.raises(ResumeExtractionError, match="Could not extract"):
+    with pytest.raises(ResumeExtractionError, match="couldn't find any education"):
         await parse_and_persist_resume(b"pdf bytes", fake_db, user_id="usr_test123")
 
     fake_db.add.assert_not_called()
@@ -111,6 +113,7 @@ async def test_parse_and_persist_resume_accepts_a_sparse_but_non_empty_extractio
     _mock_extraction(mocker, extracted)
     fake_db = mocker.AsyncMock()
     fake_db.add = mocker.MagicMock()
+    fake_db.scalar.return_value = None
 
     profile = await parse_and_persist_resume(
         b"pdf bytes", fake_db, user_id="usr_test123"
@@ -157,3 +160,165 @@ async def test_list_resumes_returns_empty_list_when_user_has_none(
     result = await list_resumes("usr_a", fake_db)
 
     assert result == []
+
+
+async def test_parse_and_persist_resume_rejects_a_duplicate_before_calling_gemini(
+    mocker: MockerFixture,
+) -> None:
+    from app.services.document_service import DuplicateDocumentError
+
+    fake_extract = mocker.patch(
+        "app.services.resume_service.extract_structured",
+        new_callable=mocker.AsyncMock,
+    )
+    fake_db = mocker.AsyncMock()
+    fake_db.scalar.return_value = 1
+
+    with pytest.raises(DuplicateDocumentError):
+        await parse_and_persist_resume(b"pdf bytes", fake_db, user_id="usr_test123")
+
+    fake_extract.assert_not_called()
+
+
+def _persist_with_links(mocker: MockerFixture, *, github_url, links):
+    extracted = ResumeExtraction(
+        education=[],
+        experience=[],
+        projects=[],
+        skills=["Python"],
+        github_url=github_url,
+    )
+    fake_extract = mocker.patch(
+        "app.services.resume_service.extract_structured",
+        return_value=extracted,
+        new_callable=mocker.AsyncMock,
+    )
+    mocker.patch(
+        "app.services.resume_service.get_gemini_settings",
+        return_value=mocker.MagicMock(gemini_resume_parsing_model="m"),
+    )
+    mocker.patch(
+        "app.services.resume_service.extract_pdf_link_targets", return_value=links
+    )
+    fake_db = mocker.AsyncMock()
+    fake_db.add = mocker.MagicMock()
+    fake_db.scalar.return_value = None
+    return fake_extract, fake_db
+
+
+async def test_resume_upload_stores_the_github_url_from_the_pdf_links(
+    mocker: MockerFixture,
+) -> None:
+    _, fake_db = _persist_with_links(
+        mocker, github_url="github.com", links=["https://github.com/sam"]
+    )
+
+    profile = await parse_and_persist_resume(b"pdf", fake_db, user_id="u")
+
+    assert profile.github_url == "https://github.com/sam"
+
+
+async def test_resume_upload_prefers_the_pdf_link_over_the_models_url(
+    mocker: MockerFixture,
+) -> None:
+    _, fake_db = _persist_with_links(
+        mocker,
+        github_url="https://github.com/from-llm",
+        links=["https://github.com/from-pdf"],
+    )
+
+    profile = await parse_and_persist_resume(b"pdf", fake_db, user_id="u")
+
+    assert profile.github_url == "https://github.com/from-pdf"
+
+
+async def test_resume_upload_uses_a_valid_model_url_when_pdf_has_no_github_link(
+    mocker: MockerFixture,
+) -> None:
+    _, fake_db = _persist_with_links(
+        mocker, github_url="https://github.com/typed-out", links=[]
+    )
+
+    profile = await parse_and_persist_resume(b"pdf", fake_db, user_id="u")
+
+    assert profile.github_url == "https://github.com/typed-out"
+
+
+async def test_resume_upload_never_stores_a_bare_link_label(
+    mocker: MockerFixture,
+) -> None:
+    _, fake_db = _persist_with_links(mocker, github_url="github.com", links=[])
+
+    profile = await parse_and_persist_resume(b"pdf", fake_db, user_id="u")
+
+    assert profile.github_url is None
+
+
+async def test_resume_upload_sends_embedded_links_to_gemini(
+    mocker: MockerFixture,
+) -> None:
+    fake_extract, fake_db = _persist_with_links(
+        mocker, github_url=None, links=["https://github.com/sam/project"]
+    )
+
+    await parse_and_persist_resume(b"pdf", fake_db, user_id="u")
+
+    parts = fake_extract.call_args.kwargs["contents"]
+    assert len(parts) == 2
+    assert "https://github.com/sam/project" in parts[1].text
+
+
+async def test_resume_upload_sends_no_link_block_when_pdf_has_none(
+    mocker: MockerFixture,
+) -> None:
+    fake_extract, fake_db = _persist_with_links(mocker, github_url=None, links=[])
+
+    await parse_and_persist_resume(b"pdf", fake_db, user_id="u")
+
+    assert len(fake_extract.call_args.kwargs["contents"]) == 1
+
+
+async def test_parse_and_persist_resume_rejects_a_non_resume_with_a_friendly_reason(
+    mocker: MockerFixture,
+) -> None:
+    extracted = ResumeExtraction(
+        looks_like_resume=False,
+        rejection_reason="an electricity bill.",
+        education=[],
+        experience=[],
+        projects=[],
+        skills=["Python"],  # junk scraped from a non-resume must not save it
+        github_url=None,
+    )
+    _mock_extraction(mocker, extracted)
+    fake_db = mocker.AsyncMock()
+    fake_db.add = mocker.MagicMock()
+    fake_db.scalar.return_value = None
+
+    with pytest.raises(ResumeExtractionError) as exc_info:
+        await parse_and_persist_resume(b"pdf", fake_db, user_id="u")
+
+    message = str(exc_info.value)
+    assert "doesn't look like a resume" in message
+    assert "electricity bill" in message
+    assert ".." not in message
+    fake_db.add.assert_not_called()
+
+
+async def test_parse_and_persist_resume_rejects_a_non_resume_without_a_reason(
+    mocker: MockerFixture,
+) -> None:
+    extracted = ResumeExtraction(
+        looks_like_resume=False,
+        education=[],
+        experience=[],
+        projects=[],
+        skills=[],
+        github_url=None,
+    )
+    _mock_extraction(mocker, extracted)
+    fake_db = mocker.AsyncMock()
+    fake_db.scalar.return_value = None
+
+    with pytest.raises(ResumeExtractionError, match="Please upload your own resume"):
+        await parse_and_persist_resume(b"pdf", fake_db, user_id="u")

@@ -156,3 +156,39 @@ describe('DashboardPage', () => {
     })
   })
 })
+
+describe('DashboardPage freshness', () => {
+  const interview = (status: string) => ({
+    id: 1,
+    candidate_profile_id: 1,
+    job_description_id: 1,
+    current_phase: 'technical_interview',
+    status,
+    end_reason: null,
+    created_at: '2026-01-01T00:00:00Z',
+    ended_at: null,
+  })
+
+  it('shows loading, not the previous visit\'s list, when returning to the dashboard', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrap = (node: ReactNode) => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>{node}</MemoryRouter>
+      </QueryClientProvider>
+    )
+    vi.mocked(api.get).mockResolvedValue([interview('in_progress')])
+    const first = render(wrap(<DashboardPage />))
+    await waitFor(() => expect(screen.getByText('In progress', { selector: 'span' })).toBeInTheDocument())
+    first.unmount()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    // The interview finished while the user was elsewhere.
+    let release: (value: unknown) => void = () => {}
+    vi.mocked(api.get).mockReturnValue(new Promise((resolve) => { release = resolve }))
+    render(wrap(<DashboardPage />))
+
+    expect(screen.queryByText('In progress', { selector: 'span' })).not.toBeInTheDocument()
+    release([interview('completed')])
+    await waitFor(() => expect(screen.getByText('Completed', { selector: 'span' })).toBeInTheDocument())
+  })
+})

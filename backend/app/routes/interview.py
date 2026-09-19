@@ -7,6 +7,7 @@ from app.core.db import get_db
 from app.core.responses import error_response, success_response
 from app.core.session_lookup import get_interview_session_or_404
 from app.dto.interview import (
+    InterviewPresetResponse,
     InterviewSessionSummary,
     InterviewStartRequest,
     InterviewTurnRequest,
@@ -19,6 +20,8 @@ from app.routes.auth import get_current_user
 from app.services.interview_service import (
     InterviewSessionNotActiveError,
     InterviewSessionNotFoundError,
+    InvalidInterviewPresetError,
+    list_interview_presets,
     list_interview_sessions,
     start_interview,
     submit_turn,
@@ -47,6 +50,20 @@ async def get_interviews(
     return success_response(data=data, status_code=httpx.codes.OK)
 
 
+@router.get("/interview/presets", response_model=list[InterviewPresetResponse])
+async def get_interview_presets(
+    coding_assessment_expected: bool | None = None,
+    user: User = Depends(get_current_user),
+) -> JSONResponse:
+    """The interview presets a candidate can pick from. Pass
+    coding_assessment_expected=false to leave out presets that need a
+    coding round.
+    """
+    presets = list_interview_presets(coding_expected=coding_assessment_expected)
+    data = [InterviewPresetResponse(**p) for p in presets]
+    return success_response(data=data, status_code=httpx.codes.OK)
+
+
 @router.post("/interview/start", response_model=InterviewTurnResponse)
 async def start(
     payload: InterviewStartRequest,
@@ -62,9 +79,15 @@ async def start(
             job_description_id=payload.job_description_id,
             user_id=user.id,
             db=db,
+            preset_key=payload.preset_key,
+            duration_minutes=payload.duration_minutes,
         )
     except InterviewSessionNotFoundError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)
+    except InvalidInterviewPresetError as exc:
+        return error_response(
+            message=str(exc), status_code=httpx.codes.UNPROCESSABLE_ENTITY
+        )
 
     return success_response(
         data=build_turn_response(session), status_code=httpx.codes.CREATED

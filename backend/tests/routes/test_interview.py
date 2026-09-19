@@ -313,3 +313,79 @@ def test_get_interviews_returns_empty_list_when_user_has_none(
 
     assert response.status_code == 200
     assert response.json()["data"] == []
+
+
+def test_get_interview_presets_filters_coding_when_not_expected(
+    authed_client: TestClient,
+) -> None:
+    response = authed_client.get(
+        "/api/v1/interview/presets", params={"coding_assessment_expected": False}
+    )
+
+    assert response.status_code == 200
+    keys = {p["key"] for p in response.json()["data"]}
+    assert "coding_only" not in keys
+    assert "full_loop_no_coding" in keys
+
+
+def test_start_interview_passes_preset_through(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    start = mocker.patch(
+        "app.routes.interview.start_interview",
+        new_callable=mocker.AsyncMock,
+        return_value=_fake_session(),
+    )
+
+    response = authed_client.post(
+        "/api/v1/interview/start",
+        json={
+            "candidate_profile_id": 1,
+            "job_description_id": 2,
+            "preset_key": "full_loop",
+            "duration_minutes": 30,
+        },
+    )
+
+    assert response.status_code == 201
+    assert start.call_args.kwargs["preset_key"] == "full_loop"
+    assert start.call_args.kwargs["duration_minutes"] == 30
+
+
+def test_start_interview_rejects_preset_without_duration(
+    authed_client: TestClient,
+) -> None:
+    response = authed_client.post(
+        "/api/v1/interview/start",
+        json={
+            "candidate_profile_id": 1,
+            "job_description_id": 2,
+            "preset_key": "full_loop",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_start_interview_returns_422_for_invalid_preset(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    from app.services.interview_service import InvalidInterviewPresetError
+
+    mocker.patch(
+        "app.routes.interview.start_interview",
+        new_callable=mocker.AsyncMock,
+        side_effect=InvalidInterviewPresetError("bad"),
+    )
+
+    response = authed_client.post(
+        "/api/v1/interview/start",
+        json={
+            "candidate_profile_id": 1,
+            "job_description_id": 2,
+            "preset_key": "full_loop",
+            "duration_minutes": 30,
+        },
+    )
+
+    assert response.status_code == 422

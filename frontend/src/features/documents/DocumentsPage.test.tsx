@@ -1,12 +1,15 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { DocumentsPage } from './DocumentsPage'
 import { api } from '../../lib/api'
 
 vi.mock('../../lib/api', () => ({
-  api: { get: vi.fn<(path: string) => Promise<unknown>>() },
+  api: {
+    get: vi.fn<(path: string) => Promise<unknown>>(),
+    delete: vi.fn<(path: string) => Promise<unknown>>(),
+  },
 }))
 
 vi.mock('../../lib/authContext', () => ({
@@ -48,6 +51,7 @@ describe('DocumentsPage', () => {
             projects: [],
             skills: ['Python', 'TypeScript'],
             github_url: null,
+            missing_sections: [],
             created_at: '2026-01-01T00:00:00Z',
           },
         ])
@@ -60,6 +64,7 @@ describe('DocumentsPage', () => {
           seniority: 'senior',
           tech_stack: ['Python', 'FastAPI'],
           coding_assessment_expected: true,
+          missing_details: [],
           created_at: '2026-01-01T00:00:00Z',
         },
       ])
@@ -147,6 +152,7 @@ describe('DocumentsPage', () => {
             projects: [],
             skills: [],
             github_url: null,
+            missing_sections: [],
             created_at: '2026-06-01T00:00:00Z',
           },
         ])
@@ -171,6 +177,7 @@ describe('DocumentsPage', () => {
           seniority: 'mid',
           tech_stack: [],
           coding_assessment_expected: false,
+          missing_details: [],
           created_at: '2026-06-01T00:00:00Z',
         },
       ])
@@ -194,6 +201,7 @@ describe('DocumentsPage', () => {
           seniority: 'senior',
           tech_stack: [],
           coding_assessment_expected: false,
+          missing_details: [],
           created_at: '2026-06-01T00:00:00Z',
         },
       ])
@@ -205,5 +213,150 @@ describe('DocumentsPage', () => {
     // all (the `jd.tech_stack.length > 0 &&` guard prevents it).
     const techStackParagraphs = document.querySelectorAll('p.text-xs.text-muted.mt-1.truncate')
     expect(techStackParagraphs.length).toBe(0)
+  })
+})
+
+
+describe('DocumentsPage delete', () => {
+  const RESUME = {
+    id: 4,
+    education: [],
+    experience: [],
+    projects: [],
+    skills: ['Python'],
+    github_url: null,
+    missing_sections: [],
+    created_at: '2026-01-01T00:00:00Z',
+  }
+  const JD = {
+    id: 9,
+    role: 'Backend Engineer',
+    company_name: null,
+    seniority: 'mid',
+    tech_stack: ['Python'],
+    coding_assessment_expected: true,
+    missing_details: [],
+    created_at: '2026-01-02T00:00:00Z',
+  }
+
+  beforeEach(() => {
+    vi.mocked(api.delete).mockReset()
+  })
+
+  function mockLists() {
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      Promise.resolve(path === '/resume' ? [RESUME] : [JD]),
+    )
+  }
+
+  it('asks for confirmation, then deletes a resume', async () => {
+    mockLists()
+    vi.mocked(api.delete).mockResolvedValue({ id: 4 })
+    renderDocuments()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete resume' }))
+    expect(api.delete).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/resume/4'))
+  })
+
+  it('deletes a job description via its own endpoint', async () => {
+    mockLists()
+    vi.mocked(api.delete).mockResolvedValue({ id: 9 })
+    renderDocuments()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete job description' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/jd/9'))
+  })
+
+  it('cancel leaves the document alone', async () => {
+    mockLists()
+    renderDocuments()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete resume' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(api.delete).not.toHaveBeenCalled()
+    expect(screen.queryByText(/permanently/)).not.toBeInTheDocument()
+  })
+
+  it('shows why a delete was refused and keeps the card', async () => {
+    mockLists()
+    vi.mocked(api.delete).mockRejectedValue(
+      new Error("This resume is used by 2 in-progress interviews. Finish or end it before deleting."),
+    )
+    renderDocuments()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete resume' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    expect(await screen.findByText(/used by 2 in-progress interviews/)).toBeInTheDocument()
+    expect(screen.getByText(/Resume ·/)).toBeInTheDocument()
+  })
+})
+
+
+describe('DocumentsPage delete loading and update', () => {
+  it('shows Deleting… while pending, then removes the card at once without waiting for a refetch', async () => {
+    let resumes = [
+      { id: 4, education: [], experience: [], projects: [], skills: ['Python'], github_url: null, missing_sections: [], created_at: '2026-01-01T00:00:00Z' },
+    ]
+    let finishDelete: () => void = () => {}
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      Promise.resolve(path === '/resume' ? resumes : []),
+    )
+    vi.mocked(api.delete).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishDelete = () => {
+            resumes = []
+            resolve({ id: 4 })
+          }
+        }),
+    )
+    renderDocuments()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete resume' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Deleting resume…')
+    expect(screen.getByText(/Resume ·/)).toBeInTheDocument()
+
+    finishDelete()
+
+    await waitFor(() => expect(screen.queryByText(/Resume ·/)).not.toBeInTheDocument())
+    expect(screen.queryByText('Deleting resume…')).not.toBeInTheDocument()
+  })
+})
+
+
+describe('DocumentsPage missing-content notes', () => {
+  it('says which sections a resume and which details a JD did not contain', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      Promise.resolve(
+        path === '/resume'
+          ? [
+              {
+                id: 1, education: [], experience: [], projects: [], skills: ['Python'],
+                github_url: null, missing_sections: ['Education', 'Projects'],
+                created_at: '2026-01-01T00:00:00Z',
+              },
+            ]
+          : [
+              {
+                id: 2, role: 'Backend Engineer', company_name: null, seniority: 'mid',
+                tech_stack: ['Python'], coding_assessment_expected: true,
+                missing_details: ['Company name'], created_at: '2026-01-02T00:00:00Z',
+              },
+            ],
+      ),
+    )
+    renderDocuments()
+
+    expect(await screen.findByText(/Education, Projects/)).toBeInTheDocument()
+    expect(screen.getByText(/Company name/)).toBeInTheDocument()
   })
 })

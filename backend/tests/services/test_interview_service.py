@@ -1,5 +1,5 @@
 import inspect
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -134,7 +134,8 @@ async def test_start_interview_creates_session_and_opening_reply(
     )
     assert session.transcript[-1]["phase"] == INTERVIEW_PHASES[0]
     assert session.question_pool == []
-    fake_db.commit.assert_awaited_once()
+    # Once to persist the session before any LLM call, once for the opening.
+    assert fake_db.commit.await_count == 2
 
 
 async def test_start_interview_prefetches_company_research_when_company_name_set(
@@ -1006,3 +1007,294 @@ async def test_list_interview_sessions_returns_empty_list_when_user_has_none(
     result = await list_interview_sessions("usr_a", fake_db)
 
     assert result == []
+
+
+async def test_start_interview_with_preset_stores_phases_and_budget(
+    mocker: MockerFixture,
+) -> None:
+    candidate_profile = _fake_candidate_profile()
+    job_description = _fake_job_description(coding_assessment_expected=False)
+
+    async def get_side_effect(model, _id):
+        return candidate_profile if model is CandidateProfile else job_description
+
+    fake_db = _mock_db(mocker, get_side_effect=get_side_effect)
+    mocker.patch(
+        "app.services.interview_service.prefetch_question_pool",
+        new_callable=mocker.AsyncMock,
+        return_value=[],
+    )
+    _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Hello.", phase_complete=False, red_flag=False, anxiety_detected=False
+        ),
+    )
+
+    session = await start_interview(
+        candidate_profile_id=1,
+        job_description_id=2,
+        user_id=TEST_USER_ID,
+        db=fake_db,
+        preset_key="technical_round",
+        duration_minutes=20,
+    )
+
+    assert session.selected_phases == ["technical_interview", "general_technical"]
+    assert session.current_phase == "technical_interview"
+    assert session.duration_minutes == 20
+    assert sum(session.phase_time_budget.values()) == 20
+    assert session.phase_started_at is not None
+
+
+async def test_start_interview_rejects_invalid_preset_before_creating_session(
+    mocker: MockerFixture,
+) -> None:
+    from app.services.interview_service import InvalidInterviewPresetError
+
+    candidate_profile = _fake_candidate_profile()
+    job_description = _fake_job_description()
+
+    async def get_side_effect(model, _id):
+        return candidate_profile if model is CandidateProfile else job_description
+
+    fake_db = _mock_db(mocker, get_side_effect=get_side_effect)
+
+    with pytest.raises(InvalidInterviewPresetError):
+        await start_interview(
+            candidate_profile_id=1,
+            job_description_id=2,
+            user_id=TEST_USER_ID,
+            db=fake_db,
+            preset_key="coding_only",
+            duration_minutes=99,
+        )
+
+    fake_db.add.assert_not_called()
+
+
+async def test_submit_turn_walks_selected_phases_and_resets_phase_clock(
+    mocker: MockerFixture,
+) -> None:
+    started = datetime(2020, 1, 1, tzinfo=UTC)
+    session = _fake_session(
+        current_phase="project_drill_down",
+        selected_phases=["project_drill_down", "coding_challenge"],
+        phase_time_budget={"project_drill_down": 5.0, "coding_challenge": 5.0},
+        phase_started_at=started,
+    )
+    fake_db = await _db_for_turn(mocker, session)
+    _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Next.", phase_complete=True, red_flag=False, anxiety_detected=False
+        ),
+    )
+
+    updated = await submit_turn(
+        session_id=10, message="answer", user_id=TEST_USER_ID, db=fake_db
+    )
+
+    assert updated.current_phase == "coding_challenge"
+    assert updated.phase_started_at > started
+
+
+async def test_submit_turn_completes_after_last_selected_phase(
+    mocker: MockerFixture,
+) -> None:
+    session = _fake_session(
+        current_phase="project_drill_down", selected_phases=["project_drill_down"]
+    )
+    fake_db = await _db_for_turn(mocker, session)
+    _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Done.", phase_complete=True, red_flag=False, anxiety_detected=False
+        ),
+    )
+
+    updated = await submit_turn(
+        session_id=10, message="answer", user_id=TEST_USER_ID, db=fake_db
+    )
+
+    assert updated.status == "completed"
+
+
+async def test_submit_turn_force_completes_a_phase_that_overran_its_budget(
+    mocker: MockerFixture,
+) -> None:
+    session = _fake_session(
+        current_phase="project_drill_down",
+        selected_phases=["project_drill_down", "coding_challenge"],
+        phase_time_budget={"project_drill_down": 5.0, "coding_challenge": 5.0},
+        phase_started_at=datetime.now(UTC) - timedelta(minutes=20),
+    )
+    fake_db = await _db_for_turn(mocker, session)
+    _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="One more.",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        ),
+    )
+
+    updated = await submit_turn(
+        session_id=10, message="answer", user_id=TEST_USER_ID, db=fake_db
+    )
+
+    assert updated.current_phase == "coding_challenge"
+
+
+async def test_submit_turn_injects_time_status_into_instruction(
+    mocker: MockerFixture,
+) -> None:
+    session = _fake_session(
+        current_phase="project_drill_down",
+        selected_phases=["project_drill_down"],
+        phase_time_budget={"project_drill_down": 10.0},
+        phase_started_at=datetime.now(UTC) - timedelta(minutes=11),
+    )
+    fake_db = await _db_for_turn(mocker, session)
+    mock_gen = _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Wrapping up.",
+            phase_complete=False,
+            red_flag=False,
+            anxiety_detected=False,
+        ),
+    )
+
+    await submit_turn(session_id=10, message="a", user_id=TEST_USER_ID, db=fake_db)
+
+    assert (
+        "Time for this phase is up" in mock_gen.call_args.kwargs["system_instruction"]
+    )
+
+
+def test_list_interview_presets_hides_coding_presets_when_not_expected() -> None:
+    from app.services.interview_service import list_interview_presets
+
+    keys = {p["key"] for p in list_interview_presets(coding_expected=False)}
+
+    assert "coding_only" not in keys
+    assert "technical_round" not in keys
+    assert "full_loop_no_coding" in keys
+    assert len(list_interview_presets()) == 6
+
+
+async def test_start_interview_commits_the_session_before_calling_the_llm(
+    mocker: MockerFixture,
+) -> None:
+    candidate_profile = _fake_candidate_profile()
+    job_description = _fake_job_description()
+
+    async def get_side_effect(model, _id):
+        return candidate_profile if model is CandidateProfile else job_description
+
+    fake_db = _mock_db(mocker, get_side_effect=get_side_effect)
+    mocker.patch(
+        "app.services.interview_service.prefetch_question_pool",
+        new_callable=mocker.AsyncMock,
+        return_value=[],
+    )
+    commits_seen_by_llm: list[int] = []
+
+    async def fake_generate(**kwargs):
+        commits_seen_by_llm.append(fake_db.commit.await_count)
+        return InterviewTurnOutput(
+            reply="Hi.", phase_complete=False, red_flag=False, anxiety_detected=False
+        )
+
+    mocker.patch(
+        "app.services.interview_service.generate_structured", side_effect=fake_generate
+    )
+
+    await start_interview(
+        candidate_profile_id=1, job_description_id=2, user_id=TEST_USER_ID, db=fake_db
+    )
+
+    # The Gateway logs on its own connection, so the session row must
+    # already be committed by the time the LLM is called.
+    assert commits_seen_by_llm == [1]
+
+
+async def test_start_interview_removes_the_session_when_the_opening_fails(
+    mocker: MockerFixture,
+) -> None:
+    candidate_profile = _fake_candidate_profile()
+    job_description = _fake_job_description()
+
+    async def get_side_effect(model, _id):
+        return candidate_profile if model is CandidateProfile else job_description
+
+    fake_db = _mock_db(mocker, get_side_effect=get_side_effect)
+    mocker.patch(
+        "app.services.interview_service.prefetch_question_pool",
+        new_callable=mocker.AsyncMock,
+        return_value=[],
+    )
+    mocker.patch(
+        "app.services.interview_service.generate_structured",
+        new_callable=mocker.AsyncMock,
+        side_effect=RuntimeError("gemini down"),
+    )
+
+    with pytest.raises(RuntimeError, match="gemini down"):
+        await start_interview(
+            candidate_profile_id=1,
+            job_description_id=2,
+            user_id=TEST_USER_ID,
+            db=fake_db,
+        )
+
+    fake_db.delete.assert_awaited_once()
+
+
+async def test_start_interview_prefetches_pool_and_research_concurrently(
+    mocker: MockerFixture,
+) -> None:
+    import asyncio
+
+    candidate_profile = _fake_candidate_profile()
+    job_description = _fake_job_description(company_name="Acme")
+
+    async def get_side_effect(model, _id):
+        return candidate_profile if model is CandidateProfile else job_description
+
+    fake_db = _mock_db(mocker, get_side_effect=get_side_effect)
+    events: list[str] = []
+
+    async def slow_pool(**kwargs):
+        events.append("pool:start")
+        await asyncio.sleep(0.01)
+        events.append("pool:end")
+        return []
+
+    async def slow_search(**kwargs):
+        events.append("search:start")
+        await asyncio.sleep(0.01)
+        events.append("search:end")
+        return "notes"
+
+    mocker.patch(
+        "app.services.interview_service.prefetch_question_pool", side_effect=slow_pool
+    )
+    mocker.patch(
+        "app.services.interview_service.search_company_context", side_effect=slow_search
+    )
+    _mock_generate_structured(
+        mocker,
+        InterviewTurnOutput(
+            reply="Hi.", phase_complete=False, red_flag=False, anxiety_detected=False
+        ),
+    )
+
+    session = await start_interview(
+        candidate_profile_id=1, job_description_id=2, user_id=TEST_USER_ID, db=fake_db
+    )
+
+    assert events[:2] == ["pool:start", "search:start"]
+    assert session.company_research == "notes"

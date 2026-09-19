@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class InterviewTurnOutput(BaseModel):
@@ -65,8 +65,29 @@ class InterviewTurnOutput(BaseModel):
 
 
 class InterviewStartRequest(BaseModel):
+    """preset_key and duration_minutes go together; omitting both runs
+    the full seven-phase interview with no time budget.
+    """
+
     candidate_profile_id: int
     job_description_id: int
+    preset_key: str | None = None
+    duration_minutes: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def check_preset_and_duration_together(self) -> "InterviewStartRequest":
+        if (self.preset_key is None) != (self.duration_minutes is None):
+            raise ValueError("Provide preset_key and duration_minutes together")
+        return self
+
+
+class InterviewPresetResponse(BaseModel):
+    key: str
+    label: str
+    description: str
+    phases: list[str]
+    durations: list[int]
+    includes_coding: bool
 
 
 class InterviewTurnRequest(BaseModel):

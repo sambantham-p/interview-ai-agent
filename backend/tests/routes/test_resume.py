@@ -27,7 +27,7 @@ def test_upload_resume_rejects_content_without_a_pdf_signature(
     assert response.status_code == 422
     body = response.json()
     assert body["success"] is False
-    assert "application/pdf" in body["error"]["message"]
+    assert "valid PDF" in body["error"]["message"]
 
 
 def test_upload_resume_rejects_non_pdf_bytes_even_if_labeled_as_pdf(
@@ -183,7 +183,7 @@ def test_upload_resume_returns_422_when_nothing_usable_was_extracted(
     mocker.patch(
         "app.routes.resume.parse_and_persist_resume",
         side_effect=ResumeExtractionError(
-            "Could not extract any education, experience, projects, or "
+            "We couldn't find any education, work experience, projects or "
             "skills from this resume"
         ),
         new_callable=mocker.AsyncMock,
@@ -196,7 +196,7 @@ def test_upload_resume_returns_422_when_nothing_usable_was_extracted(
     assert response.status_code == 422
     body = response.json()
     assert body["success"] is False
-    assert "Could not extract" in body["error"]["message"]
+    assert "couldn't find any" in body["error"]["message"]
 
 
 def test_upload_resume_returns_500_for_an_unexpected_failure(
@@ -279,3 +279,64 @@ def test_get_resumes_returns_empty_list_when_user_has_none(
 
     assert response.status_code == 200
     assert response.json()["data"] == []
+
+
+def test_upload_resume_returns_409_for_a_duplicate_upload(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    from app.services.document_service import DuplicateDocumentError
+
+    mocker.patch(
+        "app.routes.resume.parse_and_persist_resume",
+        new_callable=mocker.AsyncMock,
+        side_effect=DuplicateDocumentError("This resume has already been uploaded."),
+    )
+
+    response = authed_client.post(
+        "/api/v1/resume/upload", files=dict([_fake_upload_file()])
+    )
+
+    assert response.status_code == 409
+    assert "already been uploaded" in response.json()["error"]["message"]
+
+
+def test_delete_resume_returns_the_deleted_id(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    mocker.patch("app.routes.resume.delete_document", new_callable=mocker.AsyncMock)
+
+    response = authed_client.delete("/api/v1/resume/4")
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {"id": 4}
+
+
+def test_delete_resume_returns_409_when_in_use(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    from app.services.document_service import DocumentInUseError
+
+    mocker.patch(
+        "app.routes.resume.delete_document",
+        new_callable=mocker.AsyncMock,
+        side_effect=DocumentInUseError("used by 1 in-progress interview"),
+    )
+
+    response = authed_client.delete("/api/v1/resume/4")
+
+    assert response.status_code == 409
+    assert "in-progress interview" in response.json()["error"]["message"]
+
+
+def test_delete_resume_returns_404_when_missing(
+    authed_client: TestClient, mocker: MockerFixture
+) -> None:
+    from app.services.document_service import DocumentNotFoundError
+
+    mocker.patch(
+        "app.routes.resume.delete_document",
+        new_callable=mocker.AsyncMock,
+        side_effect=DocumentNotFoundError("No resume with id 4"),
+    )
+
+    assert authed_client.delete("/api/v1/resume/4").status_code == 404

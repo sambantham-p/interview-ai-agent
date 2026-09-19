@@ -34,6 +34,7 @@ export interface Resume {
   projects: ProjectEntry[]
   skills: string[]
   github_url: string | null
+  missing_sections: string[]
   created_at: string
 }
 
@@ -46,6 +47,7 @@ export interface JobDescription {
   seniority: Seniority
   tech_stack: string[]
   coding_assessment_expected: boolean
+  missing_details: string[]
   created_at: string
 }
 
@@ -71,4 +73,27 @@ export interface InterviewSessionSummary {
   end_reason: InterviewEndReason
   created_at: string
   ended_at: string | null
+}
+
+export interface InterviewPreset {
+  key: string
+  label: string
+  description: string
+  phases: InterviewPhase[]
+  durations: number[]
+  includes_coding: boolean
+}
+
+export interface InterviewStartRequest {
+  candidate_profile_id: number
+  job_description_id: number
+  preset_key: string
+  duration_minutes: number
+}
+
+export interface InterviewStartResponse {
+  id: number
+  current_phase: InterviewPhase
+  status: InterviewStatus
+  reply: string
 }

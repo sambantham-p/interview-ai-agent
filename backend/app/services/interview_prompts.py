@@ -150,6 +150,22 @@ PHASE_INSTRUCTIONS = {
 }
 
 
+# Injected per turn from the current phase's remaining time budget;
+# "comfortable" adds nothing.
+TIME_STATUS_INSTRUCTIONS = {
+    "running_low": (
+        "Time for this phase is running low. Do not open a new sub-topic: "
+        "ask only the single most important remaining question for this "
+        "phase, then move toward wrapping up."
+    ),
+    "exhausted": (
+        "Time for this phase is up. Finish the current question and answer "
+        "naturally within this reply without cutting the candidate off, "
+        "do not ask a new question, and set phase_complete=true."
+    ),
+}
+
+
 RED_FLAG_WARNING_MESSAGE = (
     "Before we continue, I want to flag that a few answers in this "
     "interview have raised concerns. Let's continue, but please be as "
@@ -176,8 +192,13 @@ def build_phase_system_instruction(
     github_tools_available: bool = False,
     retrieved_questions: list[str] | None = None,
     company_research: str | None = None,
+    time_status: str | None = None,
 ) -> str:
     phase_instruction = PHASE_INSTRUCTIONS[phase]
+    if time_status in TIME_STATUS_INSTRUCTIONS:
+        phase_instruction = (
+            f"{phase_instruction}\n\n{TIME_STATUS_INSTRUCTIONS[time_status]}"
+        )
     if github_tools_available:
         phase_instruction = f"{phase_instruction}\n\n{GITHUB_TOOL_INSTRUCTIONS}"
     if company_research:

@@ -78,10 +78,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   let response: Response
   try {
+    const isFormData = init?.body instanceof FormData
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
       headers: {
-        'Content-Type': 'application/json',
+        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
         'X-Request-ID': REQUEST_ID_SECRET,
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...init?.headers,
@@ -100,7 +101,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     parsed = await response.json()
   } catch {
-    // A reachable server that didn't return our JSON envelope 
+    // A reachable server that didn't return our JSON envelope
     // response.json() throws "Unexpected end of JSON input" on an empty
     // body, which is a confusing error to surface as-is.
     throw new ApiRequestError(
@@ -128,4 +129,7 @@ export const api = {
   get: <T>(path: string): Promise<T> => request<T>(path),
   post: <T>(path: string, payload: unknown): Promise<T> =>
     request<T>(path, { method: 'POST', body: JSON.stringify(payload) }),
+  delete: <T>(path: string): Promise<T> => request<T>(path, { method: 'DELETE' }),
+  upload: <T>(path: string, formData: FormData): Promise<T> =>
+    request<T>(path, { method: 'POST', body: formData }),
 }

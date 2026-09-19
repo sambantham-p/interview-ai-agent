@@ -1,5 +1,9 @@
-from app.constants.interview import INTERVIEW_PHASES
-from app.models.interview_session import SESSION_STATUSES, InterviewSession
+from app.constants.interview import (
+    INTERVIEW_PHASES,
+    SESSION_STATUS_IN_PROGRESS,
+    SESSION_STATUSES,
+)
+from app.models.interview_session import InterviewSession
 
 
 def test_table_name_and_columns() -> None:
@@ -20,6 +24,10 @@ def test_table_name_and_columns() -> None:
         "end_reason",
         "question_pool",
         "asked_question_ids",
+        "selected_phases",
+        "duration_minutes",
+        "phase_time_budget",
+        "phase_started_at",
         "github_call_count",
         "company_research",
         "created_at",
@@ -36,7 +44,7 @@ def test_current_phase_defaults_to_the_first_interview_phase() -> None:
 
 
 def test_status_defaults_to_in_progress() -> None:
-    assert InterviewSession.__table__.c.status.default.arg == SESSION_STATUSES[0]
+    assert InterviewSession.__table__.c.status.default.arg == SESSION_STATUS_IN_PROGRESS
     assert SESSION_STATUSES[0] == "in_progress"
 
 
