@@ -8,8 +8,8 @@ from app.core.gemini_client import (
     build_file_input,
     extract_structured,
 )
+from app.dto.resume import ResumeExtraction
 from app.models.candidate_profile import CandidateProfile
-from app.schemas.resume import ResumeExtraction
 
 
 class ResumeExtractionError(Exception):

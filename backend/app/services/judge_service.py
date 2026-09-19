@@ -28,11 +28,11 @@ from app.constants.judge import (
     RECOMMENDATION_TIERS,
 )
 from app.core.llm_gateway import generate_structured
+from app.dto.judge import JudgeOutput
 from app.models.interview_report import InterviewReport
 from app.models.interview_session import InterviewSession
 from app.models.job_description import JobDescription
 from app.models.judge_evaluation import JudgeEvaluation
-from app.schemas.judge import JudgeOutput
 from app.services.judge_prompts import (
     ATTITUDE_INSTRUCTIONS,
     CAREER_FIT_INSTRUCTIONS,
@@ -49,7 +49,9 @@ __all__ = [
     "generate_report",
     "get_evaluations_by_ids",
     "get_latest_report",
+    "get_report_evaluations",
 ]
+
 
 _JUDGE_TASK_BY_NAME = {
     JUDGE_PROJECT_DEPTH: LLM_TASK_JUDGE_PROJECT_DEPTH,
@@ -334,3 +336,10 @@ async def get_evaluations_by_ids(
     )
     by_id = {e.id: e for e in result.scalars().all()}
     return [by_id[i] for i in ids if i in by_id]
+
+
+async def get_report_evaluations(
+    report: InterviewReport, db: AsyncSession
+) -> list[JudgeEvaluation]:
+    """Fetches JudgeEvaluation rows associated with an InterviewReport."""
+    return await get_evaluations_by_ids(report.judge_evaluation_ids, db)

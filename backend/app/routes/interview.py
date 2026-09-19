@@ -6,16 +6,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_db
 from app.core.responses import error_response, success_response
 from app.core.session_lookup import get_interview_session_or_404
-from app.models.interview_report import InterviewReport
-from app.models.interview_session import InterviewSession
-from app.models.user import User
-from app.routes.auth import get_current_user
-from app.schemas.interview import (
+from app.dto.interview import (
     InterviewStartRequest,
     InterviewTurnRequest,
     InterviewTurnResponse,
+    build_turn_response,
 )
-from app.schemas.judge import InterviewReportResponse, JudgeEvaluationResponse
+from app.dto.judge import InterviewReportResponse
+from app.models.user import User
+from app.routes.auth import get_current_user
 from app.services.interview_service import (
     InterviewSessionNotActiveError,
     InterviewSessionNotFoundError,
@@ -26,23 +25,11 @@ from app.services.judge_service import (
     InterviewReportNotFoundError,
     InterviewSessionNotReadyForReportError,
     generate_report,
-    get_evaluations_by_ids,
     get_latest_report,
+    get_report_evaluations,
 )
 
 router = APIRouter(tags=["Interview"])
-
-
-def _turn_response(session: InterviewSession) -> InterviewTurnResponse:
-    return InterviewTurnResponse(
-        id=session.id,
-        current_phase=session.current_phase,
-        status=session.status,
-        red_flag_count=session.red_flag_count,
-        hint_counts=session.hint_counts,
-        end_reason=session.end_reason,
-        reply=session.transcript[-1]["text"],
-    )
 
 
 @router.post("/interview/start", response_model=InterviewTurnResponse)
@@ -65,7 +52,7 @@ async def start(
         return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)
 
     return success_response(
-        data=_turn_response(session), status_code=httpx.codes.CREATED
+        data=build_turn_response(session), status_code=httpx.codes.CREATED
     )
 
 
@@ -86,25 +73,8 @@ async def turn(
     except InterviewSessionNotActiveError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.CONFLICT)
 
-    return success_response(data=_turn_response(session), status_code=httpx.codes.OK)
-
-
-async def _report_response(
-    report: InterviewReport, session: InterviewSession, db: AsyncSession
-) -> InterviewReportResponse:
-    evaluations = await get_evaluations_by_ids(report.judge_evaluation_ids, db)
-    return InterviewReportResponse(
-        id=report.id,
-        session_id=report.session_id,
-        overall_score=float(report.overall_score),
-        recommendation_tier=report.recommendation_tier,
-        weights_used=report.weights_used,
-        judge_evaluations=[
-            JudgeEvaluationResponse.model_validate(e) for e in evaluations
-        ],
-        hint_counts=session.hint_counts,
-        red_flag_count=session.red_flag_count,
-        end_reason=session.end_reason,
+    return success_response(
+        data=build_turn_response(session), status_code=httpx.codes.OK
     )
 
 
@@ -128,10 +98,11 @@ async def create_report(
     except InterviewSessionNotReadyForReportError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.CONFLICT)
 
-    return success_response(
-        data=await _report_response(report, session, db),
-        status_code=httpx.codes.CREATED,
+    evaluations = await get_report_evaluations(report, db)
+    data = InterviewReportResponse.from_report_and_evaluations(
+        report, evaluations, session
     )
+    return success_response(data=data, status_code=httpx.codes.CREATED)
 
 
 @router.get("/interview/{session_id}/report", response_model=InterviewReportResponse)
@@ -153,7 +124,8 @@ async def read_report(
     except InterviewReportNotFoundError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.NOT_FOUND)
 
-    return success_response(
-        data=await _report_response(report, session, db),
-        status_code=httpx.codes.OK,
+    evaluations = await get_report_evaluations(report, db)
+    data = InterviewReportResponse.from_report_and_evaluations(
+        report, evaluations, session
     )
+    return success_response(data=data, status_code=httpx.codes.OK)

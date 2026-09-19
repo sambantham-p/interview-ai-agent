@@ -10,18 +10,23 @@ from app.core.security import (
     create_access_token,
     decode_access_token,
 )
-from app.models.user import User
-from app.schemas.auth import (
+from app.dto.auth import (
+    AuthResponse,
     ForgotPasswordRequest,
     GoogleAuthRequest,
     LoginRequest,
+    MessageResponse,
     RegisterRequest,
+    RegisterResponse,
     ResendOtpRequest,
+    ResendOtpResponse,
     ResetPasswordRequest,
     UserResponse,
     VerifyOtpRequest,
     VerifyResetCodeRequest,
+    VerifyResetCodeResponse,
 )
+from app.models.user import User
 from app.services import auth_service
 
 router = APIRouter(tags=["auth"])
@@ -47,14 +52,11 @@ async def get_current_user(
     return user
 
 
-def _auth_response(user: User) -> dict:
-    return {
-        "user": UserResponse.model_validate(user),
-        "token": create_access_token(user.id, user.token_version),
-    }
-
-
-@router.post("/auth/google", summary="Authenticate with Google and insert user object")
+@router.post(
+    "/auth/google",
+    response_model=AuthResponse,
+    summary="Authenticate with Google and insert user object",
+)
 async def google_auth(
     payload: GoogleAuthRequest,
     db: AsyncSession = Depends(get_db),
@@ -79,11 +81,14 @@ async def google_auth(
     except auth_service.GoogleAccountLinkingRequiredError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.CONFLICT)
 
-    return success_response(data=_auth_response(user))
+    token = create_access_token(user.id, user.token_version)
+    return success_response(data=AuthResponse.from_user(user, token))
 
 
 @router.post(
-    "/auth/register", summary="Initiate email registration and send 6-digit OTP"
+    "/auth/register",
+    response_model=RegisterResponse,
+    summary="Initiate email registration and send 6-digit OTP",
 )
 async def register(
     payload: RegisterRequest,
@@ -103,16 +108,13 @@ async def register(
             message=str(exc), status_code=httpx.codes.UNPROCESSABLE_ENTITY
         )
 
-    data = {
-        "email": email,
-        "otp_sent": True,
-        "message": "Verification code sent to your email address.",
-    }
-    return success_response(data=data)
+    return success_response(data=RegisterResponse(email=email))
 
 
 @router.post(
-    "/auth/verify-otp", summary="Verify 6-digit OTP and insert/activate user object"
+    "/auth/verify-otp",
+    response_model=AuthResponse,
+    summary="Verify 6-digit OTP and insert/activate user object",
 )
 async def verify_otp(
     payload: VerifyOtpRequest,
@@ -131,10 +133,15 @@ async def verify_otp(
     except auth_service.IncorrectOtpError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.BAD_REQUEST)
 
-    return success_response(data=_auth_response(user))
+    token = create_access_token(user.id, user.token_version)
+    return success_response(data=AuthResponse.from_user(user, token))
 
 
-@router.post("/auth/resend-otp", summary="Resend a fresh 6-digit OTP code")
+@router.post(
+    "/auth/resend-otp",
+    response_model=ResendOtpResponse,
+    summary="Resend a fresh 6-digit OTP code",
+)
 async def resend_otp(
     payload: ResendOtpRequest,
     db: AsyncSession = Depends(get_db),
@@ -147,15 +154,14 @@ async def resend_otp(
     except auth_service.PendingRegistrationNotFoundError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.BAD_REQUEST)
 
-    data = {
-        "email": payload.email,
-        "otp_sent": True,
-        "message": "A new verification code has been sent.",
-    }
-    return success_response(data=data)
+    return success_response(data=ResendOtpResponse(email=payload.email))
 
 
-@router.post("/auth/login", summary="Sign in with email and password")
+@router.post(
+    "/auth/login",
+    response_model=AuthResponse,
+    summary="Sign in with email and password",
+)
 async def login(
     payload: LoginRequest,
     db: AsyncSession = Depends(get_db),
@@ -171,10 +177,15 @@ async def login(
     except auth_service.EmailNotVerifiedError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.FORBIDDEN)
 
-    return success_response(data=_auth_response(user))
+    token = create_access_token(user.id, user.token_version)
+    return success_response(data=AuthResponse.from_user(user, token))
 
 
-@router.post("/auth/forgot-password", summary="Request a password reset code by email")
+@router.post(
+    "/auth/forgot-password",
+    response_model=MessageResponse,
+    summary="Request a password reset code by email",
+)
 async def forgot_password(
     payload: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db),
@@ -183,16 +194,20 @@ async def forgot_password(
     an account - see request_password_reset()'s anti-enumeration note.
     """
     await auth_service.request_password_reset(session=db, email=payload.email)
-    data = {
-        "message": (
+    data = MessageResponse(
+        message=(
             "If an account exists for this email address, you'll "
             "receive a secure reset code shortly."
-        ),
-    }
+        )
+    )
     return success_response(data=data)
 
 
-@router.post("/auth/verify-reset-code", summary="Verify a password reset code")
+@router.post(
+    "/auth/verify-reset-code",
+    response_model=VerifyResetCodeResponse,
+    summary="Verify a password reset code",
+)
 async def verify_reset_code(
     payload: VerifyResetCodeRequest,
     db: AsyncSession = Depends(get_db),
@@ -204,11 +219,13 @@ async def verify_reset_code(
     except auth_service.InvalidOrExpiredResetCodeError as exc:
         return error_response(message=str(exc), status_code=httpx.codes.BAD_REQUEST)
 
-    return success_response(data={"reset_token": reset_token})
+    return success_response(data=VerifyResetCodeResponse(reset_token=reset_token))
 
 
 @router.post(
-    "/auth/reset-password", summary="Set a new password using a verified reset token"
+    "/auth/reset-password",
+    response_model=MessageResponse,
+    summary="Set a new password using a verified reset token",
 )
 async def reset_password(
     payload: ResetPasswordRequest,
@@ -228,7 +245,9 @@ async def reset_password(
         )
 
     return success_response(
-        data={"message": "Your password has been updated. Please sign in again."}
+        data=MessageResponse(
+            message="Your password has been updated. Please sign in again."
+        )
     )
 
 

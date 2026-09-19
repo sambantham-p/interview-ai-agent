@@ -8,9 +8,9 @@ from app.core.db import get_db
 from app.core.llm_gateway import synthesize_speech
 from app.core.responses import error_response
 from app.core.session_lookup import InterviewSessionNotFoundError
+from app.dto.voice import TextToSpeechRequest
 from app.models.user import User
 from app.routes.auth import get_current_user
-from app.schemas.voice import TextToSpeechRequest
 
 router = APIRouter(tags=["Voice"])
 

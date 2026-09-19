@@ -25,10 +25,10 @@ from app.core.session_lookup import (
     InterviewSessionNotFoundError,
     get_interview_session_or_404,
 )
+from app.dto.interview import InterviewTurnOutput
 from app.models.candidate_profile import CandidateProfile
 from app.models.interview_session import InterviewSession
 from app.models.job_description import JobDescription
-from app.schemas.interview import InterviewTurnOutput
 from app.services.interview_prompts import (
     ABUSIVE_LANGUAGE_ENDED_MESSAGE,
     INTERVIEW_ENDED_EARLY_MESSAGE,

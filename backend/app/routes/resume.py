@@ -11,9 +11,9 @@ from app.constants.resume import (
 )
 from app.core.db import get_db
 from app.core.responses import error_response, success_response
+from app.dto.resume import ResumeUploadResponse
 from app.models.user import User
 from app.routes.auth import get_current_user
-from app.schemas.resume import ResumeUploadResponse
 from app.services.resume_service import parse_and_persist_resume
 
 router = APIRouter(tags=["resume"])

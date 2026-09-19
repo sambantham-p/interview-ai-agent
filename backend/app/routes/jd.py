@@ -5,9 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
 from app.core.responses import success_response
+from app.dto.jd import JobDescriptionInput, JobDescriptionResponse
 from app.models.user import User
 from app.routes.auth import get_current_user
-from app.schemas.jd import JobDescriptionInput, JobDescriptionResponse
 from app.services.jd_service import parse_and_persist_job_description
 
 router = APIRouter(tags=["Job Description"])

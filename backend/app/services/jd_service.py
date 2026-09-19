@@ -5,8 +5,8 @@ from app.constants.gemini import GEMINI_JD_EXTRACTION_SEED
 from app.constants.jd import MIN_FULL_TEXT_WORD_COUNT, MIN_SHORT_DESCRIPTION_WORD_COUNT
 from app.core.config import get_gemini_settings
 from app.core.gemini_client import extract_structured
+from app.dto.jd import SENIORITY_LEVELS, JobDescriptionExtraction
 from app.models.job_description import JobDescription
-from app.schemas.jd import SENIORITY_LEVELS, JobDescriptionExtraction
 
 EXTRACTION_INSTRUCTIONS = (
     "You will be given a job posting - a full job description or a short "
