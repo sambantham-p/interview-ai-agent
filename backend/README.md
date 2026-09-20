@@ -145,6 +145,11 @@ configured (`migrations/env.py`) to read `DATABASE_URL` from `.env` via
 `app.core.config` — not from `alembic.ini` — so there's one source of
 truth for the connection string, same as the running app uses.
 
+The app also runs `alembic upgrade head` itself on every startup
+(`app/core/migrations.py`, called first in `main.py`'s lifespan), and
+refuses to start if it fails. The commands below are still how you
+create a new revision or inspect the database by hand.
+
 ```bash
 alembic upgrade head                                    # apply migrations
 alembic revision --autogenerate -m "add some_table"       # after changing a model

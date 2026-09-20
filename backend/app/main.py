@@ -11,6 +11,7 @@ from app.core.db import ping as ping_db
 from app.core.exception_handlers import register_exception_handlers
 from app.core.gemini_client import get_gemini_client
 from app.core.logging import configure_logging
+from app.core.migrations import run_migrations
 from app.core.request_logging import RequestLoggingMiddleware
 from app.routes import auth, health, interview, jd, resume, voice
 
@@ -21,6 +22,8 @@ logger = structlog.get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    await run_migrations()
+
     # Logged, not raised: a bad DATABASE_URL or Gemini config should be
     # loud in the logs, but must not stop the process from binding its
     # port - /health is a liveness check and has to stay reachable even
