@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 from pytest_mock import MockerFixture
 
@@ -7,6 +8,7 @@ from app.main import app
 def test_lifespan_pings_db_and_prepares_gemini_client_on_startup(
     mocker: MockerFixture,
 ) -> None:
+    mocker.patch("app.main.run_migrations", new=mocker.AsyncMock())
     fake_ping_db = mocker.patch("app.main.ping_db", new=mocker.AsyncMock())
     fake_gemini_client = mocker.MagicMock()
     fake_gemini_client.aio.aclose = mocker.AsyncMock()
@@ -24,6 +26,48 @@ def test_lifespan_pings_db_and_prepares_gemini_client_on_startup(
     fake_get_gemini_client.assert_called()
 
 
+def test_lifespan_runs_migrations_before_touching_the_database(
+    mocker: MockerFixture,
+) -> None:
+    calls = mocker.MagicMock()
+    calls.run_migrations = mocker.AsyncMock()
+    calls.ping_db = mocker.AsyncMock()
+    mocker.patch("app.main.run_migrations", new=calls.run_migrations)
+    mocker.patch("app.main.ping_db", new=calls.ping_db)
+    fake_gemini_client = mocker.MagicMock()
+    fake_gemini_client.aio.aclose = mocker.AsyncMock()
+    mocker.patch("app.main.get_gemini_client", return_value=fake_gemini_client)
+    fake_engine = mocker.MagicMock()
+    fake_engine.dispose = mocker.AsyncMock()
+    mocker.patch("app.main.get_engine", return_value=fake_engine)
+
+    with TestClient(app, headers={"X-Request-ID": "sam-interview-ai-agent"}):
+        pass
+
+    assert [call[0] for call in calls.mock_calls] == ["run_migrations", "ping_db"]
+
+
+def test_lifespan_aborts_startup_when_migrations_fail(
+    mocker: MockerFixture,
+) -> None:
+    # Unlike the DB ping and Gemini client checks (logged, never raised),
+    # a failed migration must stop startup - serving requests against an
+    # older schema than the code expects would fail one request at a time.
+    mocker.patch(
+        "app.main.run_migrations",
+        new=mocker.AsyncMock(side_effect=RuntimeError("migration failed")),
+    )
+    fake_ping_db = mocker.patch("app.main.ping_db", new=mocker.AsyncMock())
+
+    with (
+        pytest.raises(RuntimeError, match="migration failed"),
+        TestClient(app, headers={"X-Request-ID": "sam-interview-ai-agent"}),
+    ):
+        pass
+
+    fake_ping_db.assert_not_awaited()
+
+
 def test_lifespan_startup_survives_db_and_gemini_failures(
     mocker: MockerFixture,
 ) -> None:
@@ -31,6 +75,7 @@ def test_lifespan_startup_survives_db_and_gemini_failures(
     # app/routes/health.py) - startup must not raise when either
     # dependency is down, or the app never binds its port and /health
     # becomes unreachable too.
+    mocker.patch("app.main.run_migrations", new=mocker.AsyncMock())
     mocker.patch("app.main.ping_db", side_effect=RuntimeError("db unreachable"))
     mocker.patch(
         "app.main.get_gemini_client", side_effect=RuntimeError("bad gemini config")
@@ -48,6 +93,7 @@ def test_lifespan_startup_survives_db_and_gemini_failures(
 def test_lifespan_closes_gemini_client_and_disposes_db_engine_on_shutdown(
     mocker: MockerFixture,
 ) -> None:
+    mocker.patch("app.main.run_migrations", new=mocker.AsyncMock())
     mocker.patch("app.main.ping_db", new=mocker.AsyncMock())
     fake_gemini_client = mocker.MagicMock()
     fake_gemini_client.aio.aclose = mocker.AsyncMock()
