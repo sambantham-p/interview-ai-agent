@@ -2,10 +2,12 @@ import pytest
 
 from app.constants.judge import LLM_TASK_JUDGE_CODING, LLM_TASK_JUDGE_PROJECT_DEPTH
 from app.core.config import (
+    CorsSettings,
     DatabaseSettings,
     ElevenLabsSettings,
     GatewaySettings,
     GeminiSettings,
+    get_cors_settings,
     get_database_settings,
     get_elevenlabs_settings,
     get_gateway_settings,
@@ -96,3 +98,28 @@ def test_get_gateway_settings_is_cached() -> None:
 
 def test_get_smtp_settings_is_cached() -> None:
     assert get_smtp_settings() is get_smtp_settings()
+
+
+def test_cors_settings_splits_comma_separated_origins() -> None:
+    settings = CorsSettings(
+        cors_allowed_origins=" https://a.vercel.app/ , ,http://localhost:5173"
+    )
+
+    assert settings.allowed_origins == ["https://a.vercel.app", "http://localhost:5173"]
+
+
+def test_cors_settings_defaults_to_local_dev_origins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CORS_ALLOWED_ORIGINS", raising=False)
+
+    settings = CorsSettings(_env_file=None)
+
+    assert settings.allowed_origins == [
+        "http://localhost:5173",
+        "http://localhost:8080",
+    ]
+
+
+def test_get_cors_settings_is_cached() -> None:
+    assert get_cors_settings() is get_cors_settings()
