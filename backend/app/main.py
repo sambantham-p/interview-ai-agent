@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.constants.app import API_V1_PREFIX, SERVICE_NAME
+from app.core.config import get_cors_settings
 from app.core.db import get_engine
 from app.core.db import ping as ping_db
 from app.core.exception_handlers import register_exception_handlers
@@ -67,11 +68,7 @@ app.add_middleware(RequestLoggingMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://prepwise-dev.up.railway.app",
-        "http://localhost:5173",
-        "http://localhost:8080",
-    ],
+    allow_origins=get_cors_settings().allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],

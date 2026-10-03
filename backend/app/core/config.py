@@ -109,6 +109,28 @@ class GatewaySettings(BaseSettings):
         return routes[task]
 
 
+class CorsSettings(BaseSettings):
+    """Browser origins allowed to call this API, as one comma-separated
+    string (e.g. "https://a.vercel.app,http://localhost:5173") - a plain
+    string rather than list[str] because pydantic-settings would otherwise
+    require JSON syntax in the env var. The default covers local dev only.
+    """
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    cors_allowed_origins: str = "http://localhost:5173,http://localhost:8080"
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        # Trailing slashes are stripped because a browser's Origin header
+        # never has one, so "https://x.app/" would silently never match.
+        return [
+            origin.strip().rstrip("/")
+            for origin in self.cors_allowed_origins.split(",")
+            if origin.strip()
+        ]
+
+
 @lru_cache
 def get_database_settings() -> DatabaseSettings:
     return DatabaseSettings()
@@ -142,3 +164,8 @@ def get_auth_settings() -> AuthSettings:
 @lru_cache
 def get_smtp_settings() -> SMTPSettings:
     return SMTPSettings()
+
+
+@lru_cache
+def get_cors_settings() -> CorsSettings:
+    return CorsSettings()
